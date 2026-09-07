@@ -12,6 +12,7 @@ import { DoctorPortalPage } from './pages/DoctorPortalPage';
 import { PatientDashboardPage } from './pages/PatientDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { DoctorReviewPage } from './pages/DoctorReviewPage';
+import { MeetingRoomPage } from './pages/MeetingRoomPage';
 
 import './App.css';
 
@@ -45,6 +46,16 @@ export function App() {
                 element={
                   <ProtectedRoute allowedRoles={['doctor']}>
                     <DoctorPortalPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Protected Telemedicine 1-to-1 Video Consultation Room */}
+              <Route
+                path="/meetings/:meetingId"
+                element={
+                  <ProtectedRoute allowedRoles={['doctor', 'patient', 'saas_admin']}>
+                    <MeetingRoomPage />
                   </ProtectedRoute>
                 }
               />

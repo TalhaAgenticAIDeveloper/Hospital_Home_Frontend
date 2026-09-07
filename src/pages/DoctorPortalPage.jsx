@@ -6,6 +6,8 @@ import { StatusCard } from '../components/doctor/StatusCard';
 import { ProfileForm } from '../components/doctor/ProfileForm';
 import { DocumentUploader } from '../components/doctor/DocumentUploader';
 import { DoctorOnboardingModal } from '../components/doctor/DoctorOnboardingModal';
+import { AvailabilityManager } from '../components/doctor/AvailabilityManager';
+import { DoctorMeetingsList } from '../components/doctor/DoctorMeetingsList';
 import { Loader } from '../components/common/Loader';
 import { Toast } from '../components/common/Toast';
 import { Button } from '../components/common/Button';
@@ -20,6 +22,8 @@ import {
   AlertTriangle,
   FileText,
   UserCheck,
+  Calendar,
+  Video,
 } from 'lucide-react';
 
 export function DoctorPortalPage() {
@@ -28,6 +32,7 @@ export function DoctorPortalPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [showResubmitModal, setShowResubmitModal] = useState(false);
+  const [activeTab, setActiveTab] = useState('consultations'); // 'consultations' | 'availability' | 'profile'
 
   useEffect(() => {
     loadProfile();
@@ -172,7 +177,150 @@ export function DoctorPortalPage() {
     );
   }
 
-  // ─── Default State (Draft / Rejected / Active) ────────────────────────
+  // ─── Active Verified Doctor State ─────────────────────────────────────
+  if (isActive) {
+    return (
+      <div className="container page-wrapper">
+        {/* Active Doctor Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <div style={{ padding: '0.5rem', background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: 'var(--radius-sm)' }}>
+              <Stethoscope size={24} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <h1 style={{ fontSize: '1.75rem', margin: 0 }}>
+                  Dr. {profile?.full_name || 'Medical Practitioner'}
+                </h1>
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: 'var(--radius-full)',
+                    background: '#dcfce7',
+                    color: '#166534',
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓ Verified Active
+                </span>
+              </div>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
+                {profile?.specialization || 'Consultant Specialist'} • {user?.email}
+              </p>
+            </div>
+          </div>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={loadProfile}
+            icon={<RefreshCw size={14} />}
+          >
+            Refresh Data
+          </Button>
+        </div>
+
+        {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+
+        {/* Tab Navigation Bar */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '0.5rem',
+            borderBottom: '2px solid var(--border-color)',
+            marginBottom: '1.75rem',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setActiveTab('consultations')}
+            style={{
+              padding: '0.75rem 1.25rem',
+              fontWeight: 700,
+              fontSize: '0.95rem',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: activeTab === 'consultations' ? '3px solid var(--primary)' : '3px solid transparent',
+              color: activeTab === 'consultations' ? 'var(--primary)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '-2px',
+            }}
+          >
+            <Video size={18} />
+            Patient Appointments & Transcripts
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('availability')}
+            style={{
+              padding: '0.75rem 1.25rem',
+              fontWeight: 700,
+              fontSize: '0.95rem',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: activeTab === 'availability' ? '3px solid var(--primary)' : '3px solid transparent',
+              color: activeTab === 'availability' ? 'var(--primary)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '-2px',
+            }}
+          >
+            <Calendar size={18} />
+            My Free Timings & Schedule
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('profile')}
+            style={{
+              padding: '0.75rem 1.25rem',
+              fontWeight: 700,
+              fontSize: '0.95rem',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: activeTab === 'profile' ? '3px solid var(--primary)' : '3px solid transparent',
+              color: activeTab === 'profile' ? 'var(--primary)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '-2px',
+            }}
+          >
+            <UserCheck size={18} />
+            Professional Profile & Documents
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === 'consultations' && <DoctorMeetingsList />}
+        {activeTab === 'availability' && <AvailabilityManager />}
+        {activeTab === 'profile' && (
+          <>
+            <ProfileForm
+              initialData={profile}
+              onProfileUpdated={loadProfile}
+              disabled={false}
+            />
+            <DocumentUploader
+              documents={profile?.documents || []}
+              onDocumentsChanged={loadProfile}
+              disabled={false}
+            />
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Default State (Draft / Rejected) ─────────────────────────────────
   return (
     <div className="container page-wrapper">
       {/* Top Header */}
