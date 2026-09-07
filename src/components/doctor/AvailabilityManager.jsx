@@ -3,67 +3,138 @@ import { meetingApi } from '../../api/meeting';
 import { Button } from '../common/Button';
 import { Toast } from '../common/Toast';
 import { Loader } from '../common/Loader';
-import { Calendar, Clock, Plus, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  Calendar,
+  Clock,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  Save,
+  Zap,
+  ToggleLeft,
+  ToggleRight,
+  RefreshCw,
+} from 'lucide-react';
+
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_NAMES_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const DEFAULT_SCHEDULE = DAY_NAMES.map((_, idx) => ({
+  day_of_week: idx,
+  start_time: '09:00',
+  end_time: '17:00',
+  slot_duration_minutes: 30,
+  is_active: idx < 5, // Mon-Fri active by default
+}));
 
 export function AvailabilityManager() {
   const [slots, setSlots] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [toast, setToast] = useState(null);
+  const [weeksAhead, setWeeksAhead] = useState(1);
+  const [scheduleLoaded, setScheduleLoaded] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Form state
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const defaultDate = tomorrow.toISOString().split('T')[0];
-
-  const [slotDate, setSlotDate] = useState(defaultDate);
-  const [startTime, setStartTime] = useState('09:00');
-  const [endTime, setEndTime] = useState('13:00');
-  const [slotDuration, setSlotDuration] = useState('30');
+  // Weekly schedule state — 7 days
+  const [weeklySchedule, setWeeklySchedule] = useState(DEFAULT_SCHEDULE);
 
   useEffect(() => {
-    loadSlots();
+    loadData();
   }, []);
 
-  const loadSlots = async () => {
+  const loadData = async () => {
     setIsLoading(true);
     try {
-      const data = await meetingApi.getMyAvailability(true);
-      setSlots(data);
+      const [slotsData, scheduleData] = await Promise.all([
+        meetingApi.getMyAvailability(true),
+        meetingApi.getWeeklySchedule().catch(() => []),
+      ]);
+      setSlots(slotsData);
+
+      // Merge saved schedule with defaults
+      if (scheduleData && scheduleData.length > 0) {
+        const merged = DEFAULT_SCHEDULE.map((defaultDay) => {
+          const saved = scheduleData.find((s) => s.day_of_week === defaultDay.day_of_week);
+          if (saved) {
+            return {
+              day_of_week: saved.day_of_week,
+              start_time: saved.start_time,
+              end_time: saved.end_time,
+              slot_duration_minutes: saved.slot_duration_minutes,
+              is_active: saved.is_active,
+            };
+          }
+          return { ...defaultDay, is_active: false };
+        });
+        setWeeklySchedule(merged);
+        setScheduleLoaded(true);
+      }
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to load availability slots.' });
+      setToast({ type: 'error', message: err.message || 'Failed to load data.' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGenerateBatch = async (e) => {
-    e.preventDefault();
-    if (startTime >= endTime) {
-      setToast({ type: 'error', message: 'Start time must be strictly before end time.' });
-      return;
+  const updateDay = (dayIndex, field, value) => {
+    setWeeklySchedule((prev) =>
+      prev.map((day) => (day.day_of_week === dayIndex ? { ...day, [field]: value } : day))
+    );
+    setHasUnsavedChanges(true);
+  };
+
+  const toggleDay = (dayIndex) => {
+    setWeeklySchedule((prev) =>
+      prev.map((day) => (day.day_of_week === dayIndex ? { ...day, is_active: !day.is_active } : day))
+    );
+    setHasUnsavedChanges(true);
+  };
+
+  const handleSaveSchedule = async () => {
+    // Validate active days have proper times
+    for (const day of weeklySchedule) {
+      if (day.is_active && day.start_time >= day.end_time) {
+        setToast({
+          type: 'error',
+          message: `${DAY_NAMES[day.day_of_week]}: Start time must be before end time.`,
+        });
+        return;
+      }
     }
 
     setIsSubmitting(true);
     try {
-      const startDt = new Date(`${slotDate}T${startTime}:00`);
-      const endDt = new Date(`${slotDate}T${endTime}:00`);
-
-      const created = await meetingApi.createAvailabilityBatch({
-        start_datetime: startDt.toISOString(),
-        end_datetime: endDt.toISOString(),
-        slot_duration_minutes: parseInt(slotDuration, 10),
-      });
-
-      setToast({
-        type: 'success',
-        message: `Successfully created ${created.length} available consultation slot(s)!`,
-      });
-      loadSlots();
+      await meetingApi.saveWeeklySchedule({ schedule: weeklySchedule });
+      setToast({ type: 'success', message: 'Weekly schedule saved successfully!' });
+      setHasUnsavedChanges(false);
+      setScheduleLoaded(true);
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to generate availability slots.' });
+      setToast({ type: 'error', message: err.message || 'Failed to save weekly schedule.' });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleGenerateSlots = async () => {
+    setIsGenerating(true);
+    try {
+      const created = await meetingApi.generateSlotsFromSchedule({
+        weeks_ahead: weeksAhead,
+        timezone_offset_minutes: new Date().getTimezoneOffset(),
+      });
+      setToast({
+        type: 'success',
+        message: `Successfully generated ${created.length} consultation slot(s) for the next ${weeksAhead} week(s)!`,
+      });
+      // Reload slots list
+      const slotsData = await meetingApi.getMyAvailability(true);
+      setSlots(slotsData);
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to generate slots from schedule.' });
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -77,7 +148,7 @@ export function AvailabilityManager() {
     }
   };
 
-  // Group slots by date for clear visual calendar layout
+  // Group slots by date for visual layout
   const groupedSlots = slots.reduce((acc, slot) => {
     const d = new Date(slot.start_time).toLocaleDateString('en-US', {
       weekday: 'short',
@@ -90,108 +161,234 @@ export function AvailabilityManager() {
     return acc;
   }, {});
 
+  if (isLoading) {
+    return <Loader text="Loading availability settings..." />;
+  }
+
   return (
     <div className="availability-manager">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-        {/* Slot Generator Form */}
-        <div className="card" style={{ borderTop: '4px solid var(--primary)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
+      {/* ─── Weekly Schedule Grid ─────────────────────────────────────────── */}
+      <div className="card" style={{ borderTop: '4px solid var(--primary)', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <Calendar size={22} color="var(--primary)" />
-            <h3 style={{ fontSize: '1.15rem', margin: 0 }}>Add Free Timings</h3>
+            <h3 style={{ fontSize: '1.15rem', margin: 0 }}>Weekly Availability Schedule</h3>
           </div>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-            Select a date and time window when you are free for consultations. We will automatically generate bookable slots for patients.
-          </p>
-
-          <form onSubmit={handleGenerateBatch}>
-            <div className="form-group" style={{ marginBottom: '1rem' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>
-                Consultation Date
-              </label>
-              <input
-                type="date"
-                value={slotDate}
-                min={new Date().toISOString().split('T')[0]}
-                onChange={(e) => setSlotDate(e.target.value)}
-                required
-                style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-              <div className="form-group">
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>
-                  From (Time)
-                </label>
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}
-                />
-              </div>
-
-              <div className="form-group">
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>
-                  To (Time)
-                </label>
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}
-                />
-              </div>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>
-                Slot Duration
-              </label>
-              <select
-                value={slotDuration}
-                onChange={(e) => setSlotDuration(e.target.value)}
-                style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: '#fff' }}
-              >
-                <option value="15">15 Minutes</option>
-                <option value="30">30 Minutes (Recommended)</option>
-                <option value="45">45 Minutes</option>
-                <option value="60">60 Minutes</option>
-              </select>
-            </div>
-
-            <Button
-              type="submit"
-              variant="primary"
-              isLoading={isSubmitting}
-              icon={<Plus size={16} />}
-              style={{ width: '100%' }}
+          {hasUnsavedChanges && (
+            <span
+              style={{
+                fontSize: '0.75rem',
+                color: '#f59e0b',
+                fontWeight: 600,
+                background: '#fffbeb',
+                padding: '0.2rem 0.6rem',
+                borderRadius: '999px',
+                border: '1px solid #fde68a',
+              }}
             >
-              Generate Availability Slots
-            </Button>
-          </form>
+              Unsaved Changes
+            </span>
+          )}
+        </div>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
+          Set your weekly availability once — toggle days on/off, set times, then generate bookable slots for patients automatically.
+        </p>
+
+        {/* 7-Day Grid */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.25rem' }}>
+          {weeklySchedule.map((day) => (
+            <div
+              key={day.day_of_week}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '140px 1fr',
+                alignItems: 'center',
+                gap: '0.75rem',
+                padding: '0.7rem 0.85rem',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid',
+                borderColor: day.is_active ? 'var(--primary)' : 'var(--border-color)',
+                background: day.is_active ? 'rgba(20, 184, 166, 0.04)' : '#fafafa',
+                opacity: day.is_active ? 1 : 0.7,
+                transition: 'all 0.2s ease',
+              }}
+            >
+              {/* Day name + toggle */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                onClick={() => toggleDay(day.day_of_week)}
+              >
+                {day.is_active ? (
+                  <ToggleRight size={22} color="var(--primary)" />
+                ) : (
+                  <ToggleLeft size={22} color="#94a3b8" />
+                )}
+                <span
+                  style={{
+                    fontWeight: 700,
+                    fontSize: '0.9rem',
+                    color: day.is_active ? 'var(--text-primary)' : 'var(--text-muted)',
+                  }}
+                >
+                  {DAY_NAMES[day.day_of_week]}
+                </span>
+              </div>
+
+              {/* Time inputs (only if active) */}
+              {day.is_active ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <input
+                    type="time"
+                    value={day.start_time}
+                    step="60"
+                    onChange={(e) => updateDay(day.day_of_week, 'start_time', e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-color)',
+                      fontSize: '0.85rem',
+                      minWidth: '110px',
+                    }}
+                  />
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>to</span>
+                  <input
+                    type="time"
+                    value={day.end_time}
+                    step="60"
+                    onChange={(e) => updateDay(day.day_of_week, 'end_time', e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-color)',
+                      fontSize: '0.85rem',
+                      minWidth: '110px',
+                    }}
+                  />
+                  <select
+                    value={day.slot_duration_minutes}
+                    onChange={(e) => updateDay(day.day_of_week, 'slot_duration_minutes', parseInt(e.target.value, 10))}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-color)',
+                      fontSize: '0.8rem',
+                      background: '#fff',
+                      minWidth: '85px',
+                    }}
+                  >
+                    <option value={15}>15 min</option>
+                    <option value={30}>30 min</option>
+                    <option value={45}>45 min</option>
+                    <option value={60}>60 min</option>
+                  </select>
+                </div>
+              ) : (
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  Day off — click toggle to enable
+                </span>
+              )}
+            </div>
+          ))}
         </div>
 
-        {/* Quick Tips & Info */}
-        <div className="card" style={{ background: '#f8fafc', border: '1px dashed var(--border-color)' }}>
-          <h4 style={{ fontSize: '1rem', color: 'var(--text-primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Clock size={18} color="var(--primary)" />
-            How Availability Works
-          </h4>
-          <ul style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
-            <li>Patients can only book appointments during slots you have marked as available.</li>
-            <li>Once a patient confirms a booking, the slot is automatically reserved and cannot be double-booked.</li>
-            <li>You can delete any unbooked slot at any time if your schedule changes.</li>
-            <li>At the meeting time, both you and the patient will see a direct <strong>"Join Video Call"</strong> button.</li>
-          </ul>
-        </div>
+        {/* Save button */}
+        <Button
+          variant="primary"
+          onClick={handleSaveSchedule}
+          isLoading={isSubmitting}
+          icon={<Save size={16} />}
+          style={{ width: '100%', marginBottom: '1rem' }}
+        >
+          Save Weekly Schedule
+        </Button>
+
+        {/* Generate Slots Section */}
+        {scheduleLoaded && (
+          <div
+            style={{
+              padding: '1rem',
+              background: 'linear-gradient(135deg, #f0fdfa, #ecfdf5)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid #99f6e4',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+              <Zap size={18} color="#0d9488" />
+              <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0f766e' }}>
+                Generate Bookable Slots
+              </span>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: '#115e59', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+              Based on your saved schedule, auto-create individual bookable slots for patients. 
+              Already existing or conflicting slots will be skipped.
+            </p>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <select
+                value={weeksAhead}
+                onChange={(e) => setWeeksAhead(parseInt(e.target.value, 10))}
+                style={{
+                  padding: '0.5rem 0.6rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid #99f6e4',
+                  fontSize: '0.85rem',
+                  background: '#fff',
+                }}
+              >
+                <option value={1}>Next 1 Week</option>
+                <option value={2}>Next 2 Weeks</option>
+                <option value={3}>Next 3 Weeks</option>
+                <option value={4}>Next 4 Weeks</option>
+              </select>
+
+              <Button
+                variant="primary"
+                onClick={handleGenerateSlots}
+                isLoading={isGenerating}
+                icon={<RefreshCw size={16} />}
+                style={{ flex: 1 }}
+              >
+                Generate Slots
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Slots List */}
+      {/* ─── How It Works Info ────────────────────────────────────────────── */}
+      <div className="card" style={{ background: '#f8fafc', border: '1px dashed var(--border-color)', marginBottom: '1.5rem' }}>
+        <h4
+          style={{
+            fontSize: '1rem',
+            color: 'var(--text-primary)',
+            marginBottom: '0.75rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <Clock size={18} color="var(--primary)" />
+          How It Works
+        </h4>
+        <ul style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
+          <li><strong>Step 1:</strong> Toggle on the days you are available and set your free hours for each day.</li>
+          <li><strong>Step 2:</strong> Click <strong>"Save Weekly Schedule"</strong> to store your template.</li>
+          <li><strong>Step 3:</strong> Click <strong>"Generate Slots"</strong> to create actual bookable slots for upcoming days.</li>
+          <li>Slots are generated at <strong>exact minute precision</strong> (e.g., 12:10–12:25 with 15-min duration).</li>
+          <li>You can delete any unbooked slot individually after generation.</li>
+          <li>Run <strong>"Generate Slots"</strong> again anytime — duplicates are automatically skipped.</li>
+        </ul>
+      </div>
+
+      {/* ─── Slots List ──────────────────────────────────────────────────── */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
           <h3 style={{ fontSize: '1.2rem', margin: 0 }}>My Scheduled Free Slots</h3>
@@ -200,25 +397,40 @@ export function AvailabilityManager() {
           </span>
         </div>
 
-        {isLoading ? (
-          <Loader text="Loading your available slots..." />
-        ) : slots.length === 0 ? (
+        {slots.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
             <Calendar size={36} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
-            <p>You haven't set any free consultation timings yet.</p>
-            <p style={{ fontSize: '0.85rem' }}>Use the form above to add your available hours for patients.</p>
+            <p>No upcoming consultation slots yet.</p>
+            <p style={{ fontSize: '0.85rem' }}>
+              Save your weekly schedule above and click "Generate Slots" to create bookable timings.
+            </p>
           </div>
         ) : (
           Object.entries(groupedSlots).map(([dateLabel, dateSlots]) => (
             <div key={dateLabel} style={{ marginBottom: '1.5rem' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary)', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.35rem' }}>
+              <div
+                style={{
+                  fontWeight: 700,
+                  fontSize: '0.95rem',
+                  color: 'var(--primary)',
+                  marginBottom: '0.75rem',
+                  borderBottom: '1px solid var(--border-color)',
+                  paddingBottom: '0.35rem',
+                }}
+              >
                 {dateLabel}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' }}>
                 {dateSlots.map((slot) => {
-                  const sTime = new Date(slot.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                  const eTime = new Date(slot.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  const sTime = new Date(slot.start_time).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+                  const eTime = new Date(slot.end_time).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
 
                   return (
                     <div
@@ -238,7 +450,13 @@ export function AvailabilityManager() {
                         <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
                           {sTime} - {eTime}
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: slot.is_booked ? '#d97706' : '#059669', fontWeight: 600 }}>
+                        <div
+                          style={{
+                            fontSize: '0.75rem',
+                            color: slot.is_booked ? '#d97706' : '#059669',
+                            fontWeight: 600,
+                          }}
+                        >
                           {slot.is_booked ? 'Booked' : 'Open for Booking'}
                         </div>
                       </div>

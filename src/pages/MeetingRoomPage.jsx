@@ -80,6 +80,17 @@ export function MeetingRoomPage() {
   const recognitionRef = useRef(null);
   const sessionTranscriptsRef = useRef([]);
 
+  // ─── Refs for current state values (avoids stale closures in recognition callbacks) ──
+  const sessionStateRef = useRef(sessionState);
+  const bothJoinedRef = useRef(bothJoined);
+  const speechLanguageRef = useRef(speechLanguage);
+  const meetingRef = useRef(meeting);
+
+  useEffect(() => { sessionStateRef.current = sessionState; }, [sessionState]);
+  useEffect(() => { bothJoinedRef.current = bothJoined; }, [bothJoined]);
+  useEffect(() => { speechLanguageRef.current = speechLanguage; }, [speechLanguage]);
+  useEffect(() => { meetingRef.current = meeting; }, [meeting]);
+
   // ─── 1. Load Meeting Details and Unblock UI Immediately ───────────────────
   useEffect(() => {
     let isMounted = true;
@@ -394,12 +405,16 @@ export function MeetingRoomPage() {
   // ─── 4. Bilingual Speech Recognition (Web Speech API) ───────────────────
   const setupSpeechRecognition = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      console.warn('Speech Recognition API not supported in this browser');
+      return;
+    }
 
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
       } catch (e) {}
+      recognitionRef.current = null;
     }
 
     try {
@@ -407,20 +422,25 @@ export function MeetingRoomPage() {
       recognition.continuous = true;
       recognition.interimResults = false;
       recognition.lang = speechLanguage; // 'ur-PK' or 'en-US'
+      recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
+        console.log('[Transcription] Speech recognition STARTED — language:', speechLanguageRef.current);
         setIsRecognizing(true);
       };
 
       recognition.onresult = (event) => {
-        const current = event.resultIndex;
-        const transcriptText = event.results[current][0].transcript.trim();
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (!event.results[i].isFinal) continue;
 
-        if (transcriptText) {
+          const transcriptText = event.results[i][0].transcript.trim();
+          if (!transcriptText) continue;
+
           const myRole = user?.role === 'doctor' ? 'doctor' : 'patient';
+          const currentMeeting = meetingRef.current;
           const myName =
             user?.role === 'doctor'
-              ? meeting?.doctor_name || 'Dr. ' + user.email.split('@')[0]
+              ? currentMeeting?.doctor_name || 'Dr. ' + user.email.split('@')[0]
               : user?.email.split('@')[0];
 
           const segment = {
@@ -428,8 +448,10 @@ export function MeetingRoomPage() {
             speaker_name: myName,
             text: transcriptText,
             timestamp: new Date().toTimeString().split(' ')[0],
-            language: speechLanguage,
+            language: speechLanguageRef.current,
           };
+
+          console.log('[Transcription] Captured speech segment:', segment.text.substring(0, 50));
 
           if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(
@@ -438,19 +460,49 @@ export function MeetingRoomPage() {
                 ...segment,
               })
             );
+          } else {
+            console.warn('[Transcription] WebSocket not open, cannot send transcript segment');
           }
         }
       };
 
       recognition.onerror = (event) => {
-        console.warn('Speech recognition notice:', event.error);
+        console.warn('[Transcription] Speech recognition error:', event.error);
+
+        // These errors are recoverable — recognition.onend will fire after this
+        // and we'll auto-restart there. For fatal errors, we stop.
+        if (event.error === 'not-allowed' || event.error === 'service-not-available') {
+          console.error('[Transcription] Fatal speech recognition error — stopping:', event.error);
+          recognitionRef.current = null;
+          setIsRecognizing(false);
+        }
+        // 'no-speech', 'network', 'aborted', 'audio-capture' → handled by onend auto-restart
       };
 
       recognition.onend = () => {
-        if (sessionState === 'active' && bothJoined && recognitionRef.current) {
-          try {
-            recognition.start();
-          } catch (e) {}
+        console.log('[Transcription] Speech recognition ENDED. sessionState:', sessionStateRef.current, 'bothJoined:', bothJoinedRef.current);
+
+        // Use REFS (not closure state) to check current values
+        if (sessionStateRef.current === 'active' && bothJoinedRef.current && recognitionRef.current) {
+          // Auto-restart with a small delay to avoid rapid restart loops
+          setTimeout(() => {
+            // Re-check refs after the delay
+            if (sessionStateRef.current === 'active' && bothJoinedRef.current && recognitionRef.current) {
+              try {
+                console.log('[Transcription] Auto-restarting speech recognition...');
+                recognitionRef.current.start();
+              } catch (e) {
+                console.warn('[Transcription] Failed to auto-restart:', e);
+                // Try a full re-setup after a longer delay
+                setTimeout(() => {
+                  if (sessionStateRef.current === 'active' && bothJoinedRef.current) {
+                    console.log('[Transcription] Attempting full re-setup...');
+                    setupSpeechRecognition();
+                  }
+                }, 2000);
+              }
+            }
+          }, 300);
         } else {
           setIsRecognizing(false);
         }
@@ -458,8 +510,9 @@ export function MeetingRoomPage() {
 
       recognition.start();
       recognitionRef.current = recognition;
+      console.log('[Transcription] Speech recognition initialized and started');
     } catch (e) {
-      console.warn('Speech recognition could not be started:', e);
+      console.warn('[Transcription] Speech recognition could not be started:', e);
     }
   };
 

@@ -35,6 +35,32 @@ export const meetingApi = {
       method: 'DELETE',
     }),
 
+  // ── Weekly Schedule ─────────────────────────────────────────────────────
+
+  /**
+   * Save or update the doctor's weekly availability template.
+   */
+  saveWeeklySchedule: (data) =>
+    apiFetch('/api/v1/meetings/weekly-schedule', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  /**
+   * Fetch the doctor's current weekly schedule template.
+   */
+  getWeeklySchedule: () =>
+    apiFetch('/api/v1/meetings/weekly-schedule'),
+
+  /**
+   * Generate bookable slots from the saved weekly schedule template.
+   */
+  generateSlotsFromSchedule: (data) =>
+    apiFetch('/api/v1/meetings/weekly-schedule/generate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   // ── Doctor Directory & Open Slots (Patient View) ──────────────────────────
 
   /**
