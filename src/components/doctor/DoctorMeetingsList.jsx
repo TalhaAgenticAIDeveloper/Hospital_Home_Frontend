@@ -16,6 +16,9 @@ import {
   X,
   ExternalLink,
   MessageSquare,
+  Paperclip,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 export function DoctorMeetingsList() {
@@ -27,6 +30,11 @@ export function DoctorMeetingsList() {
   // Transcript view modal
   const [selectedTranscript, setSelectedTranscript] = useState(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
+
+  // Patient document viewing
+  const [expandedDocsMeetingId, setExpandedDocsMeetingId] = useState(null);
+  const [meetingDocs, setMeetingDocs] = useState({});
+  const [docsLoading, setDocsLoading] = useState({});
 
   useEffect(() => {
     loadMeetings();
@@ -62,6 +70,39 @@ export function DoctorMeetingsList() {
       setToast({ type: 'success', message: 'Transcript download started.' });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Download failed.' });
+    }
+  };
+
+  const handleTogglePatientDocs = async (meetingId) => {
+    if (expandedDocsMeetingId === meetingId) {
+      setExpandedDocsMeetingId(null);
+      return;
+    }
+    setExpandedDocsMeetingId(meetingId);
+
+    // Fetch if not already loaded
+    if (!meetingDocs[meetingId]) {
+      setDocsLoading((prev) => ({ ...prev, [meetingId]: true }));
+      try {
+        const docs = await meetingApi.getMeetingPatientDocuments(meetingId);
+        setMeetingDocs((prev) => ({ ...prev, [meetingId]: docs }));
+      } catch (err) {
+        setToast({ type: 'error', message: err.message || 'Failed to load patient documents.' });
+      } finally {
+        setDocsLoading((prev) => ({ ...prev, [meetingId]: false }));
+      }
+    }
+  };
+
+  const handleDownloadPatientDoc = async (meetingId, doc) => {
+    try {
+      await meetingApi.downloadMeetingPatientDocument(
+        meetingId,
+        doc.patient_document_id,
+        doc.original_filename || 'document'
+      );
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to download document.' });
     }
   };
 
@@ -161,12 +202,127 @@ export function DoctorMeetingsList() {
                           background: 'rgba(255,255,255,0.7)',
                           padding: '0.5rem 0.75rem',
                           borderRadius: 'var(--radius-sm)',
-                          marginBottom: '1rem',
+                          marginBottom: '0.75rem',
                           border: '1px solid rgba(0,0,0,0.05)',
                         }}
                       >
                         <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>Reason / Symptoms:</span>{' '}
                         <span style={{ color: 'var(--text-primary)' }}>{m.patient_notes}</span>
+                      </div>
+                    )}
+
+                    {/* Patient Documents Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePatientDocs(m.id)}
+                      aria-expanded={expandedDocsMeetingId === m.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: 'var(--primary)',
+                        background: 'rgba(255,255,255,0.8)',
+                        border: '1px solid var(--primary-light)',
+                        padding: '0.4rem 0.75rem',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        marginBottom: '0.75rem',
+                        transition: 'all 0.15s ease',
+                        width: '100%',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Paperclip size={14} />
+                      {expandedDocsMeetingId === m.id ? 'Hide' : 'View'} Patient Documents
+                      {expandedDocsMeetingId === m.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+
+                    {/* Expanded Patient Documents */}
+                    {expandedDocsMeetingId === m.id && (
+                      <div
+                        style={{
+                          background: 'rgba(255,255,255,0.85)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '0.75rem',
+                          marginBottom: '0.75rem',
+                          animation: 'fadeIn 0.2s ease-out',
+                        }}
+                      >
+                        {docsLoading[m.id] ? (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.5rem' }}>
+                            Loading patient documents...
+                          </div>
+                        ) : !meetingDocs[m.id] || meetingDocs[m.id].length === 0 ? (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.5rem' }}>
+                            No documents were attached to this appointment.
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.15rem' }}>
+                              Shared Medical Documents ({meetingDocs[m.id].length})
+                            </div>
+                            {meetingDocs[m.id].map((doc) => (
+                              <div
+                                key={doc.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '0.5rem 0.65rem',
+                                  background: '#f8fafc',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px solid #e2e8f0',
+                                  gap: '0.5rem',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                                  <FileText
+                                    size={16}
+                                    color={doc.mime_type === 'application/pdf' ? '#d97706' : '#2563eb'}
+                                    style={{ flexShrink: 0 }}
+                                  />
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 600, fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {doc.label || doc.original_filename}
+                                    </div>
+                                    {doc.label && (
+                                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {doc.original_filename}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadPatientDoc(m.id, doc)}
+                                  title={`Download ${doc.label || doc.original_filename}`}
+                                  aria-label={`Download ${doc.label || doc.original_filename}`}
+                                  style={{
+                                    padding: '0.3rem 0.55rem',
+                                    background: '#dbeafe',
+                                    color: '#2563eb',
+                                    border: '1px solid #93c5fd',
+                                    borderRadius: 'var(--radius-sm)',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 600,
+                                    transition: 'all 0.15s ease',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <Download size={13} />
+                                  Download
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

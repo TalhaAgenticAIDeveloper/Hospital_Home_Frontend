@@ -156,4 +156,43 @@ export const meetingApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // ── Meeting Patient Documents (Doctor & Patient Access) ────────────────
+
+  /**
+   * List patient documents attached to a specific meeting.
+   * Accessible by the consulting doctor, the patient, or admin.
+   */
+  getMeetingPatientDocuments: (meetingId) =>
+    apiFetch(`/api/v1/meetings/${meetingId}/patient-documents`),
+
+  /**
+   * Download a patient document attached to a meeting.
+   * Triggers a browser download of the file.
+   */
+  downloadMeetingPatientDocument: async (meetingId, documentId, filename = 'document') => {
+    const { accessToken } = getStoredTokens();
+    const url = `${API_BASE_URL}/api/v1/meetings/${meetingId}/patient-documents/${documentId}/download`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Failed to download patient document.');
+    }
+
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(blobUrl);
+  },
 };

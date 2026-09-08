@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { meetingApi } from '../../api/meeting';
+import { patientDocumentsApi } from '../../api/patientDocuments';
 import { Button } from '../common/Button';
 import { Toast } from '../common/Toast';
 import { Loader } from '../common/Loader';
@@ -14,6 +15,8 @@ import {
   FileText,
   User,
   HeartPulse,
+  Paperclip,
+  AlertCircle,
 } from 'lucide-react';
 
 export function DoctorDirectory({ onMeetingBooked }) {
@@ -29,11 +32,30 @@ export function DoctorDirectory({ onMeetingBooked }) {
   // Booking modal / form
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [patientNotes, setPatientNotes] = useState('');
+  const [reasonError, setReasonError] = useState('');
   const [isBooking, setIsBooking] = useState(false);
+
+  // Patient documents for attachment selection
+  const [patientDocs, setPatientDocs] = useState([]);
+  const [selectedDocIds, setSelectedDocIds] = useState([]);
+  const [docsLoading, setDocsLoading] = useState(false);
 
   useEffect(() => {
     loadDoctors();
+    loadPatientDocs();
   }, []);
+
+  const loadPatientDocs = async () => {
+    setDocsLoading(true);
+    try {
+      const docs = await patientDocumentsApi.listDocuments();
+      setPatientDocs(docs);
+    } catch (err) {
+      // Silently fail — documents are optional
+    } finally {
+      setDocsLoading(false);
+    }
+  };
 
   const loadDoctors = async () => {
     setIsLoading(true);
@@ -69,12 +91,21 @@ export function DoctorDirectory({ onMeetingBooked }) {
   const handleConfirmBooking = async () => {
     if (!selectedSlot) return;
 
+    // Validate mandatory reason
+    const trimmedNotes = patientNotes.trim();
+    if (!trimmedNotes) {
+      setReasonError('Please enter a reason for consultation. This field is required.');
+      return;
+    }
+    setReasonError('');
+
     setIsBooking(true);
     try {
       await meetingApi.bookMeeting({
         doctor_id: selectedSlot.doctor_id,
         availability_id: selectedSlot.id,
-        patient_notes: patientNotes.trim() || undefined,
+        patient_notes: trimmedNotes,
+        document_ids: selectedDocIds.length > 0 ? selectedDocIds : undefined,
       });
 
       setToast({
@@ -84,6 +115,8 @@ export function DoctorDirectory({ onMeetingBooked }) {
 
       setSelectedSlot(null);
       setPatientNotes('');
+      setReasonError('');
+      setSelectedDocIds([]);
       // Reload slots for this doctor
       handleToggleDoctor(selectedSlot.doctor_id);
       if (onMeetingBooked) onMeetingBooked();
@@ -92,6 +125,14 @@ export function DoctorDirectory({ onMeetingBooked }) {
     } finally {
       setIsBooking(false);
     }
+  };
+
+  const toggleDocSelection = (docId) => {
+    setSelectedDocIds((prev) =>
+      prev.includes(docId)
+        ? prev.filter((id) => id !== docId)
+        : [...prev, docId]
+    );
   };
 
   return (
@@ -303,7 +344,7 @@ export function DoctorDirectory({ onMeetingBooked }) {
             padding: '1rem',
           }}
         >
-          <div className="card" style={{ width: '100%', maxWidth: '500px', padding: '1.75rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '560px', padding: '1.75rem', maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ fontSize: '1.25rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <HeartPulse size={22} color="var(--primary)" />
               Confirm Video Consultation
@@ -316,24 +357,184 @@ export function DoctorDirectory({ onMeetingBooked }) {
               </div>
             </div>
 
-            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>
-                Reason for Consultation / Symptoms (Optional)
+            {/* Mandatory Reason Field */}
+            <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+              <label
+                htmlFor="patient-reason"
+                style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}
+              >
+                Reason for Consultation / Symptoms
+                <span style={{ color: '#dc2626', fontSize: '0.9rem' }}>*</span>
               </label>
               <textarea
+                id="patient-reason"
                 rows={3}
                 value={patientNotes}
-                onChange={(e) => setPatientNotes(e.target.value)}
+                onChange={(e) => {
+                  setPatientNotes(e.target.value);
+                  if (e.target.value.trim()) setReasonError('');
+                }}
                 placeholder="Describe your symptoms or what you would like to discuss with the doctor..."
-                style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}
+                required
+                aria-required="true"
+                aria-invalid={!!reasonError}
+                aria-describedby={reasonError ? 'reason-error' : undefined}
+                style={{
+                  width: '100%',
+                  padding: '0.6rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: `1px solid ${reasonError ? '#ef4444' : 'var(--border-color)'}`,
+                  boxShadow: reasonError ? '0 0 0 3px rgba(239, 68, 68, 0.12)' : 'none',
+                  transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+                  fontSize: '0.9rem',
+                  resize: 'vertical',
+                }}
               />
+              {reasonError && (
+                <div
+                  id="reason-error"
+                  role="alert"
+                  style={{
+                    fontSize: '0.8rem',
+                    color: '#dc2626',
+                    fontWeight: 500,
+                    marginTop: '0.3rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.3rem',
+                  }}
+                >
+                  <AlertCircle size={14} />
+                  {reasonError}
+                </div>
+              )}
+            </div>
+
+            {/* Document Attachment Section (Optional) */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label
+                style={{
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  marginBottom: '0.5rem',
+                }}
+              >
+                <Paperclip size={15} color="var(--primary)" />
+                Attach Medical Documents
+                <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.8rem' }}>(Optional)</span>
+              </label>
+
+              {docsLoading ? (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>Loading your documents...</div>
+              ) : patientDocs.length === 0 ? (
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    padding: '0.75rem',
+                    background: 'var(--bg-alt)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                >
+                  No documents uploaded yet. You can upload medical documents from the
+                  <strong> "My Medical Documents" </strong> tab on your dashboard.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-sm)',
+                    overflow: 'hidden',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                  }}
+                >
+                  {patientDocs.map((doc, idx) => (
+                    <label
+                      key={doc.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.65rem',
+                        padding: '0.65rem 0.85rem',
+                        borderBottom: idx < patientDocs.length - 1 ? '1px solid var(--border-color)' : 'none',
+                        cursor: 'pointer',
+                        transition: 'background 0.12s ease',
+                        background: selectedDocIds.includes(doc.id) ? '#f0fdf4' : 'transparent',
+                        fontSize: '0.85rem',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!selectedDocIds.includes(doc.id)) e.currentTarget.style.background = '#f8fafc';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!selectedDocIds.includes(doc.id)) e.currentTarget.style.background = 'transparent';
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDocIds.includes(doc.id)}
+                        onChange={() => toggleDocSelection(doc.id)}
+                        aria-label={`Select ${doc.label || doc.original_filename} to share with doctor`}
+                        style={{
+                          width: '16px',
+                          height: '16px',
+                          accentColor: 'var(--primary)',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: 1, minWidth: 0 }}>
+                        <FileText size={15} color={doc.mime_type === 'application/pdf' ? '#d97706' : '#2563eb'} style={{ flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {doc.label || doc.original_filename}
+                          </div>
+                          {doc.label && (
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {doc.original_filename}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {doc.mime_type?.split('/')[1]?.toUpperCase()}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {selectedDocIds.length > 0 && (
+                <div
+                  style={{
+                    fontSize: '0.78rem',
+                    color: '#059669',
+                    fontWeight: 600,
+                    marginTop: '0.4rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.3rem',
+                  }}
+                >
+                  <CheckCircle2 size={13} />
+                  {selectedDocIds.length} document{selectedDocIds.length !== 1 ? 's' : ''} selected to share
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setSelectedSlot(null)}
+                onClick={() => {
+                  setSelectedSlot(null);
+                  setReasonError('');
+                  setSelectedDocIds([]);
+                }}
                 disabled={isBooking}
               >
                 Cancel
@@ -343,6 +544,7 @@ export function DoctorDirectory({ onMeetingBooked }) {
                 size="sm"
                 onClick={handleConfirmBooking}
                 isLoading={isBooking}
+                disabled={!patientNotes.trim()}
               >
                 Confirm Appointment
               </Button>

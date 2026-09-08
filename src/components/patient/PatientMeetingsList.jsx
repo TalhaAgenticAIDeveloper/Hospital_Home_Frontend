@@ -13,6 +13,7 @@ import {
   Stethoscope,
   CheckCircle2,
   AlertCircle,
+  Paperclip,
 } from 'lucide-react';
 
 export function PatientMeetingsList({ refreshTrigger }) {
@@ -134,12 +135,35 @@ export function PatientMeetingsList({ refreshTrigger }) {
                           background: 'rgba(255,255,255,0.7)',
                           padding: '0.5rem 0.75rem',
                           borderRadius: 'var(--radius-sm)',
-                          marginBottom: '1rem',
+                          marginBottom: m.attached_documents?.length ? '0.5rem' : '1rem',
                           border: '1px solid rgba(0,0,0,0.05)',
                         }}
                       >
                         <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>Reason:</span>{' '}
                         <span>{m.patient_notes}</span>
+                      </div>
+                    )}
+
+                    {m.attached_documents && m.attached_documents.length > 0 && (
+                      <div
+                        style={{
+                          fontSize: '0.78rem',
+                          color: '#047857',
+                          background: '#ecfdf5',
+                          padding: '0.4rem 0.65rem',
+                          borderRadius: 'var(--radius-sm)',
+                          marginBottom: '1rem',
+                          border: '1px solid #a7f3d0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        <Paperclip size={13} />
+                        <span>
+                          {m.attached_documents.length} Medical Document{m.attached_documents.length > 1 ? 's' : ''} Attached
+                        </span>
                       </div>
                     )}
                   </div>
