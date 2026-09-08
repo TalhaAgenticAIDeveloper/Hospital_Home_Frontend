@@ -77,7 +77,31 @@ export const patientDocumentsApi = {
   },
 
   /**
-   * Get the direct download URL for a document (for inline viewing).
+   * Fetch a patient document as a blob URL for in-browser viewing.
+   * @param {string} documentId - UUID of the document
+   * @returns {Promise<string>} Blob URL suitable for <iframe> or <img>
+   */
+  getDocumentBlobUrl: async (documentId) => {
+    const { accessToken } = getStoredTokens();
+    const url = `${API_BASE_URL}/api/v1/patient/documents/${documentId}/download?inline=true`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Failed to load document for viewing.');
+    }
+
+    const blob = await response.blob();
+    return window.URL.createObjectURL(blob);
+  },
+
+  /**
+   * Get the direct download URL for a document.
    * @param {string} documentId - UUID of the document
    * @returns {string} The download URL
    */

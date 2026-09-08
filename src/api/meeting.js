@@ -195,4 +195,34 @@ export const meetingApi = {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(blobUrl);
   },
+
+  /**
+   * Fetch a patient document attached to a meeting as a blob URL for in-browser viewing.
+   */
+  getMeetingPatientDocumentBlobUrl: async (meetingId, documentId) => {
+    const { accessToken } = getStoredTokens();
+    const url = `${API_BASE_URL}/api/v1/meetings/${meetingId}/patient-documents/${documentId}/download?inline=true`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Failed to load patient document for viewing.');
+    }
+
+    const blob = await response.blob();
+    return window.URL.createObjectURL(blob);
+  },
+
+  /**
+   * Request Groq LLM clinical summarization of an attached patient document.
+   */
+  summarizeMeetingPatientDocument: (meetingId, documentId, forceRefresh = false) =>
+    apiFetch(`/api/v1/meetings/${meetingId}/patient-documents/${documentId}/summarize?force_refresh=${forceRefresh}`, {
+      method: 'POST',
+    }),
 };

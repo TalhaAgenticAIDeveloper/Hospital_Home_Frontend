@@ -19,7 +19,11 @@ import {
   Paperclip,
   ChevronDown,
   ChevronUp,
+  Eye,
+  Sparkles,
 } from 'lucide-react';
+import { DocumentViewerModal } from '../common/DocumentViewerModal';
+import { DocumentSummaryModal } from './DocumentSummaryModal';
 
 export function DoctorMeetingsList() {
   const navigate = useNavigate();
@@ -35,6 +39,20 @@ export function DoctorMeetingsList() {
   const [expandedDocsMeetingId, setExpandedDocsMeetingId] = useState(null);
   const [meetingDocs, setMeetingDocs] = useState({});
   const [docsLoading, setDocsLoading] = useState({});
+
+  // Document in-browser viewer modal
+  const [viewerDoc, setViewerDoc] = useState(null);
+  const [viewerBlobUrl, setViewerBlobUrl] = useState(null);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerError, setViewerError] = useState(null);
+  const [viewerMeetingId, setViewerMeetingId] = useState(null);
+
+  // Document AI Summary modal
+  const [summaryDoc, setSummaryDoc] = useState(null);
+  const [summaryData, setSummaryData] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState(null);
+  const [summaryMeetingId, setSummaryMeetingId] = useState(null);
 
   useEffect(() => {
     loadMeetings();
@@ -98,11 +116,83 @@ export function DoctorMeetingsList() {
     try {
       await meetingApi.downloadMeetingPatientDocument(
         meetingId,
-        doc.patient_document_id,
+        doc.patient_document_id || doc.id,
         doc.original_filename || 'document'
       );
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to download document.' });
+    }
+  };
+
+  const handleViewPatientDoc = async (meetingId, doc) => {
+    setViewerDoc(doc);
+    setViewerMeetingId(meetingId);
+    setViewerLoading(true);
+    setViewerError(null);
+    setViewerBlobUrl(null);
+    try {
+      const url = await meetingApi.getMeetingPatientDocumentBlobUrl(
+        meetingId,
+        doc.patient_document_id || doc.id
+      );
+      setViewerBlobUrl(url);
+    } catch (err) {
+      setViewerError(err.message || 'Failed to load document preview.');
+    } finally {
+      setViewerLoading(false);
+    }
+  };
+
+  const handleCloseViewer = () => {
+    if (viewerBlobUrl) {
+      window.URL.revokeObjectURL(viewerBlobUrl);
+    }
+    setViewerDoc(null);
+    setViewerBlobUrl(null);
+    setViewerError(null);
+  };
+
+  const handleSummarizePatientDoc = async (meetingId, doc, forceRefresh = false) => {
+    setSummaryDoc(doc);
+    setSummaryMeetingId(meetingId);
+    setSummaryError(null);
+
+    // If already has summary and not forcing refresh, display immediately
+    if (doc.ai_summary && !forceRefresh) {
+      setSummaryData({
+        status: doc.ai_summary_status || 'completed',
+        summary: doc.ai_summary,
+        is_cached: true,
+        generated_at: doc.ai_summary_generated_at,
+      });
+      setSummaryLoading(false);
+      return;
+    }
+
+    setSummaryLoading(true);
+    try {
+      const data = await meetingApi.summarizeMeetingPatientDocument(
+        meetingId,
+        doc.patient_document_id || doc.id,
+        forceRefresh
+      );
+      setSummaryData(data);
+      // Update local doc cache
+      setMeetingDocs((prev) => {
+        const mDocs = prev[meetingId] || [];
+        return {
+          ...prev,
+          [meetingId]: mDocs.map((d) =>
+            (d.patient_document_id === (doc.patient_document_id || doc.id) || d.id === doc.id)
+              ? { ...d, ai_summary: data.summary, ai_summary_status: data.status }
+              : d
+          ),
+        };
+      });
+    } catch (err) {
+      setSummaryError(err.message || 'Failed to generate AI summary.');
+    } finally {
+      setSummaryLoading(false);
     }
   };
 
@@ -293,32 +383,99 @@ export function DoctorMeetingsList() {
                                         {doc.original_filename}
                                       </div>
                                     )}
+                                    {doc.ai_summary && (
+                                      <span
+                                        style={{
+                                          fontSize: '0.68rem',
+                                          background: '#e0e7ff',
+                                          color: '#4338ca',
+                                          padding: '0.15rem 0.45rem',
+                                          borderRadius: '4px',
+                                          fontWeight: 700,
+                                          whiteSpace: 'nowrap',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.2rem',
+                                        }}
+                                      >
+                                        <Sparkles size={11} /> Summarized
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDownloadPatientDoc(m.id, doc)}
-                                  title={`Download ${doc.label || doc.original_filename}`}
-                                  aria-label={`Download ${doc.label || doc.original_filename}`}
-                                  style={{
-                                    padding: '0.3rem 0.55rem',
-                                    background: '#dbeafe',
-                                    color: '#2563eb',
-                                    border: '1px solid #93c5fd',
-                                    borderRadius: 'var(--radius-sm)',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.25rem',
-                                    fontSize: '0.72rem',
-                                    fontWeight: 600,
-                                    transition: 'all 0.15s ease',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  <Download size={13} />
-                                  Download
-                                </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewPatientDoc(m.id, doc)}
+                                    title={`View ${doc.label || doc.original_filename} in browser`}
+                                    aria-label={`View ${doc.label || doc.original_filename}`}
+                                    style={{
+                                      padding: '0.3rem 0.55rem',
+                                      background: '#e0e7ff',
+                                      color: '#4338ca',
+                                      border: '1px solid #c7d2fe',
+                                      borderRadius: 'var(--radius-sm)',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      fontSize: '0.72rem',
+                                      fontWeight: 600,
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    <Eye size={13} />
+                                    View
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSummarizePatientDoc(m.id, doc)}
+                                    title={`Summarize ${doc.label || doc.original_filename} with AI`}
+                                    aria-label={`Summarize ${doc.label || doc.original_filename} with AI`}
+                                    style={{
+                                      padding: '0.3rem 0.55rem',
+                                      background: 'linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%)',
+                                      color: '#4f46e5',
+                                      border: '1px solid #c7d2fe',
+                                      borderRadius: 'var(--radius-sm)',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      fontSize: '0.72rem',
+                                      fontWeight: 700,
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    <Sparkles size={13} />
+                                    AI Summary
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadPatientDoc(m.id, doc)}
+                                    title={`Download ${doc.label || doc.original_filename}`}
+                                    aria-label={`Download ${doc.label || doc.original_filename}`}
+                                    style={{
+                                      padding: '0.3rem 0.55rem',
+                                      background: '#dbeafe',
+                                      color: '#2563eb',
+                                      border: '1px solid #93c5fd',
+                                      borderRadius: 'var(--radius-sm)',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      fontSize: '0.72rem',
+                                      fontWeight: 600,
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    <Download size={13} />
+                                    Download
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -510,6 +667,55 @@ export function DoctorMeetingsList() {
           </div>
         </div>
       )}
+
+      {/* ── Document In-Browser Viewer Modal ────────────────────────────── */}
+      <DocumentViewerModal
+        isOpen={Boolean(viewerDoc)}
+        onClose={handleCloseViewer}
+        document={viewerDoc}
+        blobUrl={viewerBlobUrl}
+        isLoading={viewerLoading}
+        error={viewerError}
+        onDownload={
+          viewerDoc && viewerMeetingId
+            ? () => handleDownloadPatientDoc(viewerMeetingId, viewerDoc)
+            : undefined
+        }
+      />
+
+      {/* ── Document AI Summary Modal ───────────────────────────────────── */}
+      <DocumentSummaryModal
+        isOpen={Boolean(summaryDoc)}
+        onClose={() => {
+          setSummaryDoc(null);
+          setSummaryData(null);
+          setSummaryError(null);
+        }}
+        document={summaryDoc}
+        summaryData={summaryData}
+        isLoading={summaryLoading}
+        error={summaryError}
+        onRegenerate={
+          summaryDoc && summaryMeetingId
+            ? () => handleSummarizePatientDoc(summaryMeetingId, summaryDoc, true)
+            : undefined
+        }
+        onViewDocument={
+          summaryDoc && summaryMeetingId
+            ? () => {
+                const doc = summaryDoc;
+                const mId = summaryMeetingId;
+                setSummaryDoc(null);
+                handleViewPatientDoc(mId, doc);
+              }
+            : undefined
+        }
+        onDownload={
+          summaryDoc && summaryMeetingId
+            ? () => handleDownloadPatientDoc(summaryMeetingId, summaryDoc)
+            : undefined
+        }
+      />
     </div>
   );
 }

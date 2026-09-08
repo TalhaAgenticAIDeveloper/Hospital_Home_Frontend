@@ -15,7 +15,9 @@ import {
   Image,
   HardDrive,
   Tag,
+  Eye,
 } from 'lucide-react';
+import { DocumentViewerModal } from '../common/DocumentViewerModal';
 
 const MAX_DOCS = 5;
 const MAX_SIZE_MB = 50;
@@ -47,8 +49,38 @@ export function PatientDocumentsManager() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // In-browser preview modal
+  const [viewerDoc, setViewerDoc] = useState(null);
+  const [viewerBlobUrl, setViewerBlobUrl] = useState(null);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerError, setViewerError] = useState(null);
+
   const fileInputRef = useRef(null);
   const dropZoneRef = useRef(null);
+
+  const handleViewDoc = async (doc) => {
+    setViewerDoc(doc);
+    setViewerLoading(true);
+    setViewerError(null);
+    setViewerBlobUrl(null);
+    try {
+      const url = await patientDocumentsApi.getDocumentBlobUrl(doc.id);
+      setViewerBlobUrl(url);
+    } catch (err) {
+      setViewerError(err.message || 'Failed to load document preview.');
+    } finally {
+      setViewerLoading(false);
+    }
+  };
+
+  const handleCloseViewer = () => {
+    if (viewerBlobUrl) {
+      window.URL.revokeObjectURL(viewerBlobUrl);
+    }
+    setViewerDoc(null);
+    setViewerBlobUrl(null);
+    setViewerError(null);
+  };
 
   // ── Load Documents ──────────────────────────────────────────────────────
   const loadDocuments = useCallback(async () => {
@@ -434,6 +466,36 @@ export function PatientDocumentsManager() {
                 <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
                   <button
                     type="button"
+                    onClick={() => handleViewDoc(doc)}
+                    title="View document in browser"
+                    aria-label={`View ${doc.label || doc.original_filename}`}
+                    style={{
+                      padding: '0.4rem 0.65rem',
+                      background: '#e0e7ff',
+                      color: '#4338ca',
+                      border: '1px solid #c7d2fe',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#c7d2fe';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#e0e7ff';
+                    }}
+                  >
+                    <Eye size={15} />
+                    <span>View</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => handleDownload(doc)}
                     title="Download document"
                     aria-label={`Download ${doc.label || doc.original_filename}`}
@@ -541,6 +603,17 @@ export function PatientDocumentsManager() {
           </div>
         </div>
       )}
+
+      {/* In-Browser Document Viewer Modal */}
+      <DocumentViewerModal
+        isOpen={Boolean(viewerDoc)}
+        onClose={handleCloseViewer}
+        document={viewerDoc}
+        blobUrl={viewerBlobUrl}
+        isLoading={viewerLoading}
+        error={viewerError}
+        onDownload={viewerDoc ? () => handleDownload(viewerDoc) : undefined}
+      />
     </div>
   );
 }
