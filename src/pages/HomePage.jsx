@@ -1,10 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Activity, ShieldCheck, Stethoscope, User, Lock, FileCheck2, ArrowRight } from 'lucide-react';
+import { ShieldCheck, Stethoscope, Lock, FileCheck2, ArrowRight } from 'lucide-react';
 
 export function HomePage() {
-  const { user, isAuthenticated, isDoctor, isPatient, isAdmin } = useAuth();
+  const { isAuthenticated, isDoctor, isPatient, isAdmin } = useAuth();
 
   return (
     <div className="container page-wrapper">

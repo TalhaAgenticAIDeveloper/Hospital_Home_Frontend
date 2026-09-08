@@ -41,6 +41,18 @@ export function DoctorReviewPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState(null);
 
+  const loadDoctorDetail = async () => {
+    setIsLoading(true);
+    try {
+      const data = await adminApi.getDoctorDetail(doctorUserId);
+      setDoctorDetail(data);
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to load doctor details.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (doctorUserId) {
       loadDoctorDetail();
@@ -58,18 +70,6 @@ export function DoctorReviewPage() {
       setToast({ type: 'error', message: err.message || 'Failed to delete doctor account.' });
     } finally {
       setIsDeleting(false);
-    }
-  };
-
-  const loadDoctorDetail = async () => {
-    setIsLoading(true);
-    try {
-      const data = await adminApi.getDoctorDetail(doctorUserId);
-      setDoctorDetail(data);
-    } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to load doctor details.' });
-    } finally {
-      setIsLoading(false);
     }
   };
 

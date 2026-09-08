@@ -101,7 +101,7 @@ export async function apiFetch(endpoint, options = {}) {
   try {
     response = await fetch(url, fetchConfig);
   } catch (networkError) {
-    throw new Error('Network error. Please check your internet connection or server status.');
+    throw new Error('Network error. Please check your internet connection or server status.', { cause: networkError });
   }
 
   // Handle Token Expiry (401 Unauthorized) & Auto Refresh
@@ -156,7 +156,7 @@ export async function apiFetch(endpoint, options = {}) {
       processQueue(refreshErr, null);
       clearStoredTokens();
       window.dispatchEvent(new Event('auth:unauthorized'));
-      throw new Error('Session expired. Please log in again.');
+      throw new Error('Session expired. Please log in again.', { cause: refreshErr });
     } finally {
       isRefreshing = false;
     }

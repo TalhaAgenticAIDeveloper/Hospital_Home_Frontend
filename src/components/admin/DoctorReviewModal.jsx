@@ -4,7 +4,7 @@ import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
 import { Toast } from '../common/Toast';
 import { adminApi } from '../../api/admin';
-import { Check, X, FileText, User, Award, FileCheck, AlertOctagon, Phone, Clock, GraduationCap, Eye, Download } from 'lucide-react';
+import { Check, X, FileText, FileCheck, AlertOctagon, Eye, Download } from 'lucide-react';
 
 export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed }) {
   const [doctorDetail, setDoctorDetail] = useState(null);
@@ -13,15 +13,6 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
   const [rejectMode, setRejectMode] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [toast, setToast] = useState(null);
-
-  useEffect(() => {
-    if (isOpen && doctorUserId) {
-      loadDoctorDetail();
-      setRejectMode(false);
-      setFeedback('');
-      setToast(null);
-    }
-  }, [isOpen, doctorUserId]);
 
   const loadDoctorDetail = async () => {
     setIsLoading(true);
@@ -34,6 +25,15 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (isOpen && doctorUserId) {
+      loadDoctorDetail();
+      setRejectMode(false);
+      setFeedback('');
+      setToast(null);
+    }
+  }, [isOpen, doctorUserId]);
 
   const handleApprove = async () => {
     if (!window.confirm('Are you sure you want to APPROVE this doctor? Their account will become active immediately.')) {

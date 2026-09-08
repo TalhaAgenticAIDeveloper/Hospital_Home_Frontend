@@ -101,61 +101,22 @@ export const meetingApi = {
   getMeetingDetails: (meetingIdOrRoom) =>
     apiFetch(`/api/v1/meetings/${meetingIdOrRoom}`),
 
-  // ── Meeting Completion & Transcripts ──────────────────────────────────────
+  // ── Meeting Completion ───────────────────────────────────────────────────
 
   /**
-   * Finalize meeting and save bilingual transcript.
+   * End a consultation meeting and record optional doctor clinical notes.
+   */
+  endMeeting: (meetingId, data = {}) =>
+    apiFetch(`/api/v1/meetings/${meetingId}/end`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /**
+   * Legacy alias for ending meeting.
    */
   endMeetingAndSaveTranscript: (meetingId, data) =>
-    apiFetch(`/api/v1/meetings/${meetingId}/end-and-save-transcript`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  /**
-   * View transcript text.
-   */
-  getTranscriptText: (meetingId) =>
-    apiFetch(`/api/v1/meetings/${meetingId}/transcript`),
-
-  /**
-   * Trigger direct browser download of transcript text file.
-   */
-  downloadTranscript: async (meetingId) => {
-    const { accessToken } = getStoredTokens();
-    const url = `${API_BASE_URL}/api/v1/meetings/${meetingId}/transcript/download`;
-
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.detail || 'Failed to download transcript file.');
-    }
-
-    const blob = await response.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = `Consultation_Transcript_${meetingId}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(blobUrl);
-  },
-
-  /**
-   * Save a session transcript (per join/leave cycle) without ending the meeting.
-   * Used when doctor leaves mid-meeting but meeting is still active.
-   */
-  saveSessionTranscript: (meetingId, data) =>
-    apiFetch(`/api/v1/meetings/${meetingId}/save-session-transcript`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    meetingApi.endMeeting(meetingId, data),
 
   // ── Meeting Patient Documents (Doctor & Patient Access) ────────────────
 

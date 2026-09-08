@@ -31,9 +31,6 @@ export function DoctorMeetingsList() {
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
-  // Transcript view modal
-  const [selectedTranscript, setSelectedTranscript] = useState(null);
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
 
   // Patient document viewing
   const [expandedDocsMeetingId, setExpandedDocsMeetingId] = useState(null);
@@ -67,27 +64,6 @@ export function DoctorMeetingsList() {
       setToast({ type: 'error', message: err.message || 'Failed to load meetings.' });
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleViewTranscript = async (meetingId) => {
-    setTranscriptLoading(true);
-    try {
-      const data = await meetingApi.getTranscriptText(meetingId);
-      setSelectedTranscript(data);
-    } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to fetch transcript.' });
-    } finally {
-      setTranscriptLoading(false);
-    }
-  };
-
-  const handleDownload = async (meetingId) => {
-    try {
-      await meetingApi.downloadTranscript(meetingId);
-      setToast({ type: 'success', message: 'Transcript download started.' });
-    } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Download failed.' });
     }
   };
 
@@ -496,17 +472,16 @@ export function DoctorMeetingsList() {
         )}
       </div>
 
-      {/* ── Section 2: Past Consultations & Transcripts ────────────────────── */}
+      {/* ── Section 2: Past Consultations History ──────────────────────────── */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
-          <FileText size={22} color="var(--accent)" />
-          <h3 style={{ fontSize: '1.25rem', margin: 0 }}>Past Consultations & Speech Transcripts</h3>
+          <Clock size={22} color="var(--primary)" />
+          <h3 style={{ fontSize: '1.25rem', margin: 0 }}>Past Consultations History</h3>
         </div>
 
         {pastMeetings.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
             <p>No past consultations completed yet.</p>
-            <p style={{ fontSize: '0.85rem' }}>Meeting transcript files (English & Urdu) will appear here after consultations end.</p>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -515,9 +490,9 @@ export function DoctorMeetingsList() {
                 <tr>
                   <th>Date & Time</th>
                   <th>Patient</th>
+                  <th>Chief Complaint / Reason</th>
+                  <th>Doctor Notes</th>
                   <th>Status</th>
-                  <th>Transcript Status</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -532,7 +507,20 @@ export function DoctorMeetingsList() {
                         </div>
                       </td>
                       <td>
-                        <div>{m.patient_name || m.patient_email}</div>
+                        <div style={{ fontWeight: 600 }}>{m.patient_name || m.patient_email}</div>
+                        {m.patient_name && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{m.patient_email}</div>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', maxWidth: '280px' }}>
+                          {m.patient_notes || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>None specified</span>}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', maxWidth: '280px' }}>
+                          {m.doctor_notes || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>None recorded</span>}
+                        </div>
                       </td>
                       <td>
                         <span
@@ -548,36 +536,6 @@ export function DoctorMeetingsList() {
                           {m.status}
                         </span>
                       </td>
-                      <td>
-                        {m.has_transcript ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#059669', fontSize: '0.8rem', fontWeight: 600 }}>
-                            <CheckCircle2 size={14} /> Available (.txt)
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>None</span>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleViewTranscript(m.id)}
-                            icon={<FileText size={14} />}
-                          >
-                            View
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleDownload(m.id)}
-                            icon={<Download size={14} />}
-                            title="Download transcript file"
-                          >
-                            Download
-                          </Button>
-                        </div>
-                      </td>
                     </tr>
                   );
                 })}
@@ -586,87 +544,6 @@ export function DoctorMeetingsList() {
           </div>
         )}
       </div>
-
-      {/* ── Transcript Preview Modal ───────────────────────────────────────── */}
-      {selectedTranscript && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.6)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '1rem',
-          }}
-        >
-          <div
-            className="card"
-            style={{
-              width: '100%',
-              maxWidth: '750px',
-              maxHeight: '90vh',
-              display: 'flex',
-              flexDirection: 'column',
-              padding: '1.5rem',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <MessageSquare size={20} color="var(--primary)" />
-                <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Consultation Transcript & Notes</h3>
-              </div>
-              <button
-                onClick={() => setSelectedTranscript(null)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                background: '#f8fafc',
-                padding: '1rem',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--border-color)',
-                fontFamily: "'Segoe UI', 'Noto Nastaliq Urdu', Tahoma, Geneva, Verdana, sans-serif",
-                fontSize: '0.9rem',
-                lineHeight: '1.6',
-                whiteSpace: 'pre-wrap',
-                color: '#1e293b',
-              }}
-            >
-              {selectedTranscript.transcript_text || 'No transcript text available for this meeting.'}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => handleDownload(selectedTranscript.meeting_id)}
-                icon={<Download size={14} />}
-              >
-                Download (.txt)
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setSelectedTranscript(null)}
-              >
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Document In-Browser Viewer Modal ────────────────────────────── */}
       <DocumentViewerModal

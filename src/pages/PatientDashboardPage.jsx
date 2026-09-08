@@ -250,8 +250,8 @@ export function PatientDashboardPage() {
 
             <div style={{ padding: '1.25rem', background: 'var(--bg-alt)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
               <FileText size={20} color="var(--accent)" style={{ marginBottom: '0.5rem' }} />
-              <h4 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>Bilingual Speech Transcription</h4>
-              <p style={{ fontSize: '0.85rem' }}>Consultation conversation is transcribed in English and Urdu for clinical records.</p>
+              <h4 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>Medical Documents & AI Summary</h4>
+              <p style={{ fontSize: '0.85rem' }}>Securely upload medical history records with AI-assisted clinical insights for doctors.</p>
             </div>
 
             <div style={{ padding: '1.25rem', background: 'var(--bg-alt)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>

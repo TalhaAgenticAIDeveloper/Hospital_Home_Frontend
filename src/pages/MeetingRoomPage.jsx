@@ -13,18 +13,15 @@ import {
   Video,
   VideoOff,
   PhoneOff,
-  MessageSquare,
-  Globe,
   ShieldCheck,
   User,
   Stethoscope,
-  Send,
-  AlertTriangle,
-  Download,
   CheckCircle2,
   AlertCircle,
   RefreshCw,
   LogIn,
+  FileText,
+  X,
 } from 'lucide-react';
 
 const ICE_SERVERS = {
@@ -56,19 +53,10 @@ export function MeetingRoomPage() {
   const [sessionState, setSessionState] = useState('active');
   // 'active' = in meeting | 'left' = user left (can rejoin) | 'completed' = meeting ended fully
   const [showLeaveWarning, setShowLeaveWarning] = useState(false);
-  const [sessionNumber, setSessionNumber] = useState(1);
-  const [canRejoin, setCanRejoin] = useState(false);
-
-  // Bilingual Speech Recognition state
-  const [speechLanguage, setSpeechLanguage] = useState('ur-PK'); // 'ur-PK' or 'en-US'
-  const [isRecognizing, setIsRecognizing] = useState(false);
-  const [transcripts, setTranscripts] = useState([]);
-  const [sessionTranscripts, setSessionTranscripts] = useState([]); // Current session only
-  const [showTranscriptPanel, setShowTranscriptPanel] = useState(true);
-  const [manualNote, setManualNote] = useState('');
+  const [showEndModal, setShowEndModal] = useState(false);
   const [doctorNotes, setDoctorNotes] = useState('');
-
-  // Track if both participants have joined (for transcription control)
+  const [isEnding, setIsEnding] = useState(false);
+  const [canRejoin, setCanRejoin] = useState(false);
   const [bothJoined, setBothJoined] = useState(false);
 
   // DOM and WebRTC refs
@@ -77,19 +65,6 @@ export function MeetingRoomPage() {
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const wsRef = useRef(null);
-  const recognitionRef = useRef(null);
-  const sessionTranscriptsRef = useRef([]);
-
-  // ─── Refs for current state values (avoids stale closures in recognition callbacks) ──
-  const sessionStateRef = useRef(sessionState);
-  const bothJoinedRef = useRef(bothJoined);
-  const speechLanguageRef = useRef(speechLanguage);
-  const meetingRef = useRef(meeting);
-
-  useEffect(() => { sessionStateRef.current = sessionState; }, [sessionState]);
-  useEffect(() => { bothJoinedRef.current = bothJoined; }, [bothJoined]);
-  useEffect(() => { speechLanguageRef.current = speechLanguage; }, [speechLanguage]);
-  useEffect(() => { meetingRef.current = meeting; }, [meeting]);
 
   // ─── 1. Load Meeting Details and Unblock UI Immediately ───────────────────
   useEffect(() => {
@@ -102,7 +77,7 @@ export function MeetingRoomPage() {
         const data = await meetingApi.getMeetingDetails(meetingId);
         if (!isMounted) return;
         setMeeting(data);
-        setIsLoadingMeeting(false); // <── Unblock UI immediately!
+        setIsLoadingMeeting(false);
 
         if (data.status === 'completed') {
           setSessionState('completed');
@@ -141,24 +116,7 @@ export function MeetingRoomPage() {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
     }
-  }, [localStream, localVideoRef.current]);
-
-  // ─── Transcription Control: Only start when BOTH have joined ──────────
-  useEffect(() => {
-    if (!meeting || sessionState !== 'active') return;
-
-    if (bothJoined) {
-      setupSpeechRecognition();
-    }
-
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {}
-      }
-    };
-  }, [speechLanguage, meeting, sessionState, bothJoined]);
+  }, [localStream]);
 
   // ─── Check rejoin eligibility whenever sessionState changes ───────────
   useEffect(() => {
@@ -181,7 +139,7 @@ export function MeetingRoomPage() {
   }, [meeting, sessionState]);
 
   // ─── 2. Safe Media Acquisition with Timeout Fallback ─────────────────────
-  const initializeMediaAndSignaling = async (meetingData) => {
+  async function initializeMediaAndSignaling(meetingData) {
     let stream = null;
 
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -215,7 +173,7 @@ export function MeetingRoomPage() {
           setMediaStatus('blocked');
           setToast({
             type: 'warning',
-            message: 'Camera/Mic not detected or blocked. You can still join and use live text/transcript.',
+            message: 'Camera and microphone are blocked or not detected. You can still join to view the screen.',
           });
         }
       }
@@ -250,7 +208,7 @@ export function MeetingRoomPage() {
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
         setPeerConnected(true);
-        setBothJoined(true); // Both participants are now connected
+        setBothJoined(true);
       }
     };
 
@@ -299,9 +257,6 @@ export function MeetingRoomPage() {
 
         switch (data.type) {
           case 'room-status':
-            if (data.existing_transcripts) {
-              setTranscripts(data.existing_transcripts);
-            }
             if (data.peer_count >= 2) {
               const other = data.participants.find((p) => p.user_id !== user?.id);
               if (other) {
@@ -312,7 +267,7 @@ export function MeetingRoomPage() {
             }
             break;
 
-          case 'peer-joined':
+          case 'peer-joined': {
             setPeerName(data.name || 'Participant');
             setToast({ type: 'info', message: `${data.name} joined the consultation.` });
 
@@ -328,6 +283,7 @@ export function MeetingRoomPage() {
               })
             );
             break;
+          }
 
           case 'offer': {
             const pcAns = createPeerConnection(meetingData, activeStream);
@@ -364,23 +320,11 @@ export function MeetingRoomPage() {
             break;
           }
 
-          case 'transcript-segment':
-            if (data.segment) {
-              setTranscripts((prev) => [...prev, data.segment]);
-              setSessionTranscripts((prev) => [...prev, data.segment]);
-              sessionTranscriptsRef.current = [...sessionTranscriptsRef.current, data.segment];
-            }
-            break;
-
           case 'peer-left':
             setPeerConnected(false);
             setBothJoined(false);
             setPeerName('Participant disconnected');
             setToast({ type: 'info', message: 'The other participant has left the consultation.' });
-            // Stop speech recognition when peer leaves
-            if (recognitionRef.current) {
-              try { recognitionRef.current.stop(); } catch (e) {}
-            }
             break;
 
           case 'meeting-ended':
@@ -400,120 +344,6 @@ export function MeetingRoomPage() {
     ws.onclose = (e) => {
       console.log('Signaling WebSocket closed:', e.code, e.reason);
     };
-  };
-
-  // ─── 4. Bilingual Speech Recognition (Web Speech API) ───────────────────
-  const setupSpeechRecognition = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('Speech Recognition API not supported in this browser');
-      return;
-    }
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = false;
-      recognition.lang = speechLanguage; // 'ur-PK' or 'en-US'
-      recognition.maxAlternatives = 1;
-
-      recognition.onstart = () => {
-        console.log('[Transcription] Speech recognition STARTED — language:', speechLanguageRef.current);
-        setIsRecognizing(true);
-      };
-
-      recognition.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          if (!event.results[i].isFinal) continue;
-
-          const transcriptText = event.results[i][0].transcript.trim();
-          if (!transcriptText) continue;
-
-          const myRole = user?.role === 'doctor' ? 'doctor' : 'patient';
-          const currentMeeting = meetingRef.current;
-          const myName =
-            user?.role === 'doctor'
-              ? currentMeeting?.doctor_name || 'Dr. ' + user.email.split('@')[0]
-              : user?.email.split('@')[0];
-
-          const segment = {
-            speaker: myRole,
-            speaker_name: myName,
-            text: transcriptText,
-            timestamp: new Date().toTimeString().split(' ')[0],
-            language: speechLanguageRef.current,
-          };
-
-          console.log('[Transcription] Captured speech segment:', segment.text.substring(0, 50));
-
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(
-              JSON.stringify({
-                type: 'transcript-segment',
-                ...segment,
-              })
-            );
-          } else {
-            console.warn('[Transcription] WebSocket not open, cannot send transcript segment');
-          }
-        }
-      };
-
-      recognition.onerror = (event) => {
-        console.warn('[Transcription] Speech recognition error:', event.error);
-
-        // These errors are recoverable — recognition.onend will fire after this
-        // and we'll auto-restart there. For fatal errors, we stop.
-        if (event.error === 'not-allowed' || event.error === 'service-not-available') {
-          console.error('[Transcription] Fatal speech recognition error — stopping:', event.error);
-          recognitionRef.current = null;
-          setIsRecognizing(false);
-        }
-        // 'no-speech', 'network', 'aborted', 'audio-capture' → handled by onend auto-restart
-      };
-
-      recognition.onend = () => {
-        console.log('[Transcription] Speech recognition ENDED. sessionState:', sessionStateRef.current, 'bothJoined:', bothJoinedRef.current);
-
-        // Use REFS (not closure state) to check current values
-        if (sessionStateRef.current === 'active' && bothJoinedRef.current && recognitionRef.current) {
-          // Auto-restart with a small delay to avoid rapid restart loops
-          setTimeout(() => {
-            // Re-check refs after the delay
-            if (sessionStateRef.current === 'active' && bothJoinedRef.current && recognitionRef.current) {
-              try {
-                console.log('[Transcription] Auto-restarting speech recognition...');
-                recognitionRef.current.start();
-              } catch (e) {
-                console.warn('[Transcription] Failed to auto-restart:', e);
-                // Try a full re-setup after a longer delay
-                setTimeout(() => {
-                  if (sessionStateRef.current === 'active' && bothJoinedRef.current) {
-                    console.log('[Transcription] Attempting full re-setup...');
-                    setupSpeechRecognition();
-                  }
-                }, 2000);
-              }
-            }
-          }, 300);
-        } else {
-          setIsRecognizing(false);
-        }
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
-      console.log('[Transcription] Speech recognition initialized and started');
-    } catch (e) {
-      console.warn('[Transcription] Speech recognition could not be started:', e);
-    }
   };
 
   // ─── Controls & Actions ────────────────────────────────────────────────
@@ -537,61 +367,11 @@ export function MeetingRoomPage() {
     }
   };
 
-  const toggleLanguage = () => {
-    const nextLang = speechLanguage === 'ur-PK' ? 'en-US' : 'ur-PK';
-    setSpeechLanguage(nextLang);
-    setToast({
-      type: 'info',
-      message: `Speech transcription language switched to: ${nextLang === 'ur-PK' ? 'Urdu (اردو)' : 'English'}`,
-    });
-  };
-
-  const handleSendManualNote = (e) => {
-    e.preventDefault();
-    if (!manualNote.trim()) return;
-
-    const myRole = user?.role === 'doctor' ? 'doctor' : 'patient';
-    const myName =
-      user?.role === 'doctor'
-        ? meeting?.doctor_name || 'Dr. ' + user.email.split('@')[0]
-        : user?.email.split('@')[0];
-
-    const segment = {
-      speaker: myRole,
-      speaker_name: myName,
-      text: manualNote.trim(),
-      timestamp: new Date().toTimeString().split(' ')[0],
-      language: speechLanguage,
-    };
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'transcript-segment',
-          ...segment,
-        })
-      );
-    }
-
-    setManualNote('');
-  };
-
   // ─── Leave Call (NOT end meeting) ─────────────────────────────────────
   const handleLeaveCall = async () => {
     setShowLeaveWarning(false);
 
     try {
-      // If user is doctor, save this session's transcript
-      if (user?.role === 'doctor' && sessionTranscriptsRef.current.length > 0) {
-        await meetingApi.saveSessionTranscript(meeting.id, {
-          session_number: sessionNumber,
-          doctor_notes: doctorNotes || undefined,
-          segments: sessionTranscriptsRef.current,
-        });
-        setToast({ type: 'success', message: `Session ${sessionNumber} transcript saved!` });
-      }
-
-      // Notify peer we're leaving (but NOT ending the meeting)
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -605,11 +385,8 @@ export function MeetingRoomPage() {
       setSessionState('left');
       setBothJoined(false);
       setPeerConnected(false);
-
     } catch (err) {
       console.error('Error during leave:', err);
-      setToast({ type: 'error', message: err.message || 'Failed to save session transcript.' });
-      // Still leave even if save fails
       cleanupCall();
       setSessionState('left');
     }
@@ -618,9 +395,6 @@ export function MeetingRoomPage() {
   // ─── Rejoin Meeting ───────────────────────────────────────────────────
   const handleRejoin = async () => {
     setSessionState('active');
-    setSessionNumber((prev) => prev + 1);
-    setSessionTranscripts([]);
-    sessionTranscriptsRef.current = [];
     setPeerName('Waiting for participant to join...');
     setMediaStatus('requesting');
 
@@ -649,9 +423,8 @@ export function MeetingRoomPage() {
   };
 
   // ─── End Meeting Fully (Doctor only) ──────────────────────────────────
-  const handleEndMeeting = async () => {
-    setShowLeaveWarning(false);
-
+  const handleConfirmEndMeeting = async () => {
+    setIsEnding(true);
     try {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
@@ -662,20 +435,22 @@ export function MeetingRoomPage() {
         );
       }
 
-      await meetingApi.endMeetingAndSaveTranscript(meeting.id, {
-        doctor_notes: doctorNotes || undefined,
-        segments: transcripts,
+      await meetingApi.endMeeting(meeting.id, {
+        doctor_notes: doctorNotes.trim() || undefined,
       });
 
+      setShowEndModal(false);
       setSessionState('completed');
-      setToast({ type: 'success', message: 'Consultation ended and transcript saved!' });
+      setToast({ type: 'success', message: 'Consultation ended successfully!' });
       cleanupCall();
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to finalize meeting transcript.' });
+      setToast({ type: 'error', message: err.message || 'Failed to end consultation.' });
+    } finally {
+      setIsEnding(false);
     }
   };
 
-  const cleanupCall = () => {
+  function cleanupCall() {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
@@ -688,16 +463,10 @@ export function MeetingRoomPage() {
       wsRef.current.close();
       wsRef.current = null;
     }
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
     setLocalStream(null);
   };
 
-  // ─── Loading Screen (Only while fetching metadata, max 100ms) ───────────
+  // ─── Loading Screen ──────────────────────────────────────────────────────
   if (isLoadingMeeting) {
     return <Loader fullScreen text="Entering secure telemedicine consultation..." />;
   }
@@ -743,12 +512,8 @@ export function MeetingRoomPage() {
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
             {canRejoin
-              ? `You have left session ${sessionNumber}. ${
-                  user?.role === 'doctor'
-                    ? 'Your session transcript has been saved. '
-                    : ''
-                }You can rejoin the consultation as the scheduled end time has not passed yet.`
-              : 'The scheduled meeting time has expired. You can no longer rejoin this consultation.'}
+              ? 'You have exited the meeting room. You can rejoin the consultation at any time before the scheduled window expires.'
+              : 'The scheduled meeting window has expired. You can no longer rejoin this consultation.'}
           </p>
 
           {/* End time countdown for rejoin window */}
@@ -773,18 +538,6 @@ export function MeetingRoomPage() {
               Back to Dashboard
             </Button>
           </div>
-
-          {/* Doctor download links for saved sessions */}
-          {user?.role === 'doctor' && sessionNumber > 0 && (
-            <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg-alt)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-                Session Transcripts Saved: {sessionNumber}
-              </div>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
-                You can download all session transcripts from your Doctor Portal after the consultation is fully completed.
-              </p>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -810,24 +563,32 @@ export function MeetingRoomPage() {
 
           <h2 style={{ fontSize: '1.6rem', marginBottom: '0.5rem' }}>Consultation Completed</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-            The speech transcription dialogue (English & Urdu) has been compiled into a secure file.
-            {user?.role === 'doctor'
-              ? ' You can view and download the full transcript anytime from your doctor portal.'
-              : ' Your doctor has received the consultation transcript and record.'}
+            The consultation has been successfully concluded and recorded in your medical history.
           </p>
 
+          {doctorNotes && (
+            <div
+              style={{
+                textAlign: 'left',
+                background: 'var(--bg-alt)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-md)',
+                padding: '1.25rem',
+                marginBottom: '1.5rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                <FileText size={16} color="var(--primary)" /> Doctor Clinical Notes
+              </div>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                {doctorNotes}
+              </p>
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
-            {user?.role === 'doctor' && (
-              <Button
-                variant="primary"
-                onClick={() => meetingApi.downloadTranscript(meeting.id)}
-                icon={<Download size={16} />}
-              >
-                Download Transcript (.txt)
-              </Button>
-            )}
             <Button
-              variant="secondary"
+              variant="primary"
               onClick={() => navigate(user?.role === 'doctor' ? '/doctor/portal' : '/patient/dashboard')}
             >
               Back to Dashboard
@@ -860,6 +621,99 @@ export function MeetingRoomPage() {
         isDoctor={user?.role === 'doctor'}
       />
 
+      {/* Doctor End Consultation Confirmation Modal */}
+      {showEndModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            background: 'rgba(0,0,0,0.7)',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: '520px',
+              background: '#1e293b',
+              borderRadius: '16px',
+              border: '1px solid rgba(255,255,255,0.1)',
+              padding: '1.75rem',
+              color: '#f8fafc',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CheckCircle2 size={22} color="#10b981" />
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700 }}>End Consultation</h3>
+              </div>
+              <button
+                onClick={() => setShowEndModal(false)}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.9rem', color: '#94a3b8', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+              Ending this consultation will mark it as <strong>completed</strong> for both you and the patient. You can optionally add clinical notes below.
+            </p>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#e2e8f0', marginBottom: '0.4rem' }}>
+                Clinical Notes / Prescription Advice (Optional)
+              </label>
+              <textarea
+                rows={4}
+                value={doctorNotes}
+                onChange={(e) => setDoctorNotes(e.target.value)}
+                placeholder="Enter diagnosis summary, recommended medicines, or follow-up instructions..."
+                style={{
+                  width: '100%',
+                  background: '#0f172a',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  borderRadius: '8px',
+                  color: '#fff',
+                  padding: '0.75rem',
+                  fontSize: '0.85rem',
+                  resize: 'vertical',
+                  lineHeight: 1.5,
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowEndModal(false)}
+                disabled={isEnding}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleConfirmEndMeeting}
+                isLoading={isEnding}
+                style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  borderColor: '#059669',
+                }}
+              >
+                Complete Consultation
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Bar */}
       <div
         style={{
@@ -887,9 +741,8 @@ export function MeetingRoomPage() {
           </div>
         </div>
 
-        {/* Security, Language & Transcription Status */}
+        {/* Security & Connection Status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Transcription status indicator */}
           <div
             style={{
               display: 'flex',
@@ -912,7 +765,7 @@ export function MeetingRoomPage() {
               background: bothJoined ? '#34d399' : '#fbbf24',
               animation: bothJoined ? 'none' : 'blink 1.5s ease-in-out infinite',
             }} />
-            {bothJoined ? 'Transcription Active' : 'Waiting for Both Participants'}
+            {bothJoined ? 'Peer Connected' : 'Waiting for Peer'}
           </div>
 
           <div
@@ -930,329 +783,130 @@ export function MeetingRoomPage() {
           >
             <ShieldCheck size={14} /> E2E Encrypted WebRTC
           </div>
-
-          <button
-            onClick={toggleLanguage}
-            title="Click to switch speech language between Urdu and English"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              fontSize: '0.75rem',
-              background: 'rgba(255,255,255,0.1)',
-              color: '#f8fafc',
-              border: '1px solid rgba(255,255,255,0.2)',
-              padding: '0.35rem 0.75rem',
-              borderRadius: 'var(--radius-full)',
-              cursor: 'pointer',
-              fontWeight: 600,
-            }}
-          >
-            <Globe size={14} color="#60a5fa" />
-            Language: <strong>{speechLanguage === 'ur-PK' ? 'اردو (Urdu)' : 'English'}</strong>
-          </button>
         </div>
       </div>
 
-      {/* Main Video & Transcript Grid */}
-      <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden' }}>
-        {/* Video Area */}
+      {/* Main Video Area (Full Width) */}
+      <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden', background: '#020617' }}>
+        {/* Remote Video (Peer) */}
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: peerConnected ? 'block' : 'none',
+          }}
+        />
+
+        {/* Peer Waiting Placeholder */}
+        {!peerConnected && (
+          <div style={{ margin: 'auto', textAlign: 'center', color: '#94a3b8', padding: '2rem' }}>
+            <div
+              style={{
+                width: '88px',
+                height: '88px',
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.05)',
+                margin: '0 auto 1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px dashed rgba(255,255,255,0.2)',
+              }}
+            >
+              <User size={40} color="#64748b" />
+            </div>
+            <h3 style={{ fontSize: '1.25rem', color: '#f1f5f9', marginBottom: '0.5rem', fontWeight: 600 }}>
+              {peerName}
+            </h3>
+            <p style={{ fontSize: '0.9rem', maxWidth: '420px', margin: '0 auto', lineHeight: 1.6, color: '#94a3b8' }}>
+              You have entered the secure consultation room. When the other participant joins, your audio and video will connect automatically.
+            </p>
+          </div>
+        )}
+
+        {/* Local Video Picture-in-Picture */}
         <div
           style={{
-            flex: showTranscriptPanel ? '1 1 70%' : '1 1 100%',
-            position: 'relative',
+            position: 'absolute',
+            top: '1.5rem',
+            right: '1.5rem',
+            width: '220px',
+            height: '145px',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.6)',
+            border: '2px solid rgba(255,255,255,0.2)',
+            background: '#1e293b',
+            zIndex: 10,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: '#020617',
           }}
         >
-          {/* Remote Video (Peer) */}
           <video
-            ref={remoteVideoRef}
+            ref={localVideoRef}
             autoPlay
             playsInline
+            muted
             style={{
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              display: peerConnected ? 'block' : 'none',
+              transform: 'scaleX(-1)',
+              display: mediaStatus === 'ready' && !isVideoMuted ? 'block' : 'none',
             }}
           />
 
-          {/* Peer Waiting Placeholder */}
-          {!peerConnected && (
-            <div style={{ textAlign: 'center', color: '#94a3b8', padding: '1rem' }}>
-              <div
-                style={{
-                  width: '80px',
-                  height: '80px',
-                  borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.05)',
-                  margin: '0 auto 1rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: '1px dashed rgba(255,255,255,0.2)',
-                }}
-              >
-                <User size={36} color="#64748b" />
-              </div>
-              <h3 style={{ fontSize: '1.2rem', color: '#f1f5f9', marginBottom: '0.35rem' }}>
-                {peerName}
-              </h3>
-              <p style={{ fontSize: '0.85rem', maxWidth: '400px', margin: '0 auto' }}>
-                You have entered the consultation room. When the other party joins, your audio and video will connect instantly.
-              </p>
-              <p style={{ fontSize: '0.75rem', color: '#f59e0b', marginTop: '0.75rem' }}>
-                ⏳ Speech transcription will start automatically once both participants join.
-              </p>
+          {mediaStatus === 'requesting' && (
+            <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+              Connecting camera...
             </div>
           )}
 
-          {/* Local Video Picture-in-Picture */}
+          {mediaStatus === 'no-camera' && (
+            <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+              <Mic size={20} color="#10b981" style={{ marginBottom: '4px' }} />
+              <div>Audio Only</div>
+            </div>
+          )}
+
+          {mediaStatus === 'blocked' && (
+            <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.7rem', color: '#f87171' }}>
+              Camera/Mic blocked in browser
+            </div>
+          )}
+
+          {mediaStatus === 'ready' && isVideoMuted && (
+            <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+              Camera Off
+            </div>
+          )}
+
           <div
             style={{
               position: 'absolute',
-              top: '1.5rem',
-              right: '1.5rem',
-              width: '210px',
-              height: '140px',
-              borderRadius: 'var(--radius-md)',
-              overflow: 'hidden',
-              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
-              border: '2px solid rgba(255,255,255,0.2)',
-              background: '#1e293b',
-              zIndex: 10,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              bottom: '6px',
+              left: '8px',
+              fontSize: '0.7rem',
+              background: 'rgba(0,0,0,0.7)',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontWeight: 600,
             }}
           >
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                transform: 'scaleX(-1)', // mirror selfie
-                display: mediaStatus === 'ready' && !isVideoMuted ? 'block' : 'none',
-              }}
-            />
-
-            {mediaStatus === 'requesting' && (
-              <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-                Connecting camera...
-              </div>
-            )}
-
-            {mediaStatus === 'no-camera' && (
-              <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-                <Mic size={20} color="#10b981" style={{ marginBottom: '4px' }} />
-                <div>Audio Only</div>
-              </div>
-            )}
-
-            {mediaStatus === 'blocked' && (
-              <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.7rem', color: '#f87171' }}>
-                Camera/Mic blocked in browser
-              </div>
-            )}
-
-            {mediaStatus === 'ready' && isVideoMuted && (
-              <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-                Camera Off
-              </div>
-            )}
-
-            <div
-              style={{
-                position: 'absolute',
-                bottom: '6px',
-                left: '8px',
-                fontSize: '0.7rem',
-                background: 'rgba(0,0,0,0.65)',
-                padding: '1px 6px',
-                borderRadius: '4px',
-              }}
-            >
-              You ({user?.role})
-            </div>
+            You ({user?.role === 'doctor' ? 'Doctor' : 'Patient'})
           </div>
         </div>
-
-        {/* Right Side: Live Bilingual Speech Transcript Panel */}
-        {showTranscriptPanel && (
-          <div
-            style={{
-              width: '380px',
-              background: '#1e293b',
-              borderLeft: '1px solid rgba(255,255,255,0.1)',
-              display: 'flex',
-              flexDirection: 'column',
-              zIndex: 5,
-            }}
-          >
-            <div
-              style={{
-                padding: '0.85rem 1rem',
-                borderBottom: '1px solid rgba(255,255,255,0.1)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <MessageSquare size={16} color="#60a5fa" />
-                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Live Speech Transcript</span>
-              </div>
-              <span style={{ fontSize: '0.7rem', color: isRecognizing ? '#34d399' : '#94a3b8', fontWeight: 600 }}>
-                {isRecognizing ? '● Listening' : bothJoined ? 'Transcript Ready' : '● Waiting for Peer'}
-              </span>
-            </div>
-
-            {/* Transcript Messages Feed */}
-            <div
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: '1rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.75rem',
-              }}
-            >
-              {transcripts.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.85rem', marginTop: '2rem' }}>
-                  <p>Spoken conversation will be transcribed here live.</p>
-                  <p style={{ fontSize: '0.75rem', color: '#475569' }}>
-                    {bothJoined
-                      ? 'Supports English and Urdu (اردو) speech.'
-                      : 'Transcription will begin once both participants join.'}
-                  </p>
-                </div>
-              ) : (
-                transcripts.map((seg, idx) => {
-                  const isUrdu = seg.language === 'ur-PK' || /[\u0600-\u06FF]/.test(seg.text);
-                  const isDoctor = seg.speaker === 'doctor';
-
-                  return (
-                    <div
-                      key={idx}
-                      style={{
-                        padding: '0.6rem 0.8rem',
-                        borderRadius: 'var(--radius-sm)',
-                        background: isDoctor ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                        borderLeft: isDoctor ? '3px solid #3b82f6' : '3px solid #10b981',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          fontSize: '0.75rem',
-                          marginBottom: '0.2rem',
-                          color: isDoctor ? '#93c5fd' : '#86efac',
-                          fontWeight: 700,
-                        }}
-                      >
-                        <span>{seg.speaker_name || seg.speaker}</span>
-                        <span style={{ color: '#94a3b8', fontWeight: 400 }}>{seg.timestamp}</span>
-                      </div>
-
-                      <div
-                        style={{
-                          fontSize: '0.85rem',
-                          color: '#f8fafc',
-                          direction: isUrdu ? 'rtl' : 'ltr',
-                          textAlign: isUrdu ? 'right' : 'left',
-                          fontFamily: isUrdu ? "'Noto Nastaliq Urdu', 'Segoe UI', Tahoma, sans-serif" : 'inherit',
-                          lineHeight: isUrdu ? 1.8 : 1.4,
-                        }}
-                      >
-                        {seg.text}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Doctor Clinical Notes input (Doctor only) */}
-            {user?.role === 'doctor' && (
-              <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                <textarea
-                  rows={2}
-                  value={doctorNotes}
-                  onChange={(e) => setDoctorNotes(e.target.value)}
-                  placeholder="Doctor Clinical Summary (saved with transcript)..."
-                  style={{
-                    width: '100%',
-                    background: '#0f172a',
-                    border: '1px solid rgba(255,255,255,0.15)',
-                    color: '#fff',
-                    padding: '0.4rem 0.6rem',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '0.75rem',
-                    resize: 'none',
-                  }}
-                />
-              </div>
-            )}
-
-            {/* Manual Quick Note / Message Input */}
-            <form
-              onSubmit={handleSendManualNote}
-              style={{
-                padding: '0.75rem',
-                borderTop: '1px solid rgba(255,255,255,0.1)',
-                display: 'flex',
-                gap: '0.5rem',
-              }}
-            >
-              <input
-                type="text"
-                value={manualNote}
-                onChange={(e) => setManualNote(e.target.value)}
-                placeholder="Type a clinical note or message..."
-                style={{
-                  flex: 1,
-                  background: '#0f172a',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  color: '#fff',
-                  padding: '0.45rem 0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.8rem',
-                }}
-              />
-              <button
-                type="submit"
-                style={{
-                  background: '#3b82f6',
-                  border: 'none',
-                  color: '#fff',
-                  padding: '0.45rem 0.75rem',
-                  borderRadius: 'var(--radius-sm)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Send size={14} />
-              </button>
-            </form>
-          </div>
-        )}
       </div>
 
       {/* Bottom Floating Control Bar */}
       <div
         style={{
-          padding: '1rem',
+          padding: '1rem 1.5rem',
           background: 'rgba(15, 23, 42, 0.95)',
           borderTop: '1px solid rgba(255,255,255,0.1)',
           display: 'flex',
@@ -1266,8 +920,8 @@ export function MeetingRoomPage() {
           onClick={toggleAudio}
           title={isAudioMuted ? 'Unmute Microphone' : 'Mute Microphone'}
           style={{
-            width: '46px',
-            height: '46px',
+            width: '48px',
+            height: '48px',
             borderRadius: '50%',
             background: isAudioMuted ? '#ef4444' : 'rgba(255,255,255,0.15)',
             color: '#fff',
@@ -1279,7 +933,7 @@ export function MeetingRoomPage() {
             transition: 'all 0.15s ease',
           }}
         >
-          {isAudioMuted ? <MicOff size={20} /> : <Mic size={20} />}
+          {isAudioMuted ? <MicOff size={22} /> : <Mic size={22} />}
         </button>
 
         {/* Camera Toggle */}
@@ -1287,8 +941,8 @@ export function MeetingRoomPage() {
           onClick={toggleVideo}
           title={isVideoMuted ? 'Turn Camera On' : 'Turn Camera Off'}
           style={{
-            width: '46px',
-            height: '46px',
+            width: '48px',
+            height: '48px',
             borderRadius: '50%',
             background: isVideoMuted ? '#ef4444' : 'rgba(255,255,255,0.15)',
             color: '#fff',
@@ -1300,37 +954,16 @@ export function MeetingRoomPage() {
             transition: 'all 0.15s ease',
           }}
         >
-          {isVideoMuted ? <VideoOff size={20} /> : <Video size={20} />}
-        </button>
-
-        {/* Transcript Panel Toggle */}
-        <button
-          onClick={() => setShowTranscriptPanel(!showTranscriptPanel)}
-          title="Toggle live transcript side panel"
-          style={{
-            width: '46px',
-            height: '46px',
-            borderRadius: '50%',
-            background: showTranscriptPanel ? '#3b82f6' : 'rgba(255,255,255,0.15)',
-            color: '#fff',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          <MessageSquare size={20} />
+          {isVideoMuted ? <VideoOff size={22} /> : <Video size={22} />}
         </button>
 
         {/* Leave Call Button */}
         <button
           onClick={() => setShowLeaveWarning(true)}
-          title="Leave Consultation"
+          title="Leave Consultation Room"
           style={{
-            padding: '0 1.25rem',
-            height: '46px',
+            padding: '0 1.5rem',
+            height: '48px',
             borderRadius: 'var(--radius-full)',
             background: '#dc2626',
             color: '#fff',
@@ -1340,34 +973,35 @@ export function MeetingRoomPage() {
             alignItems: 'center',
             gap: '0.5rem',
             fontWeight: 700,
-            fontSize: '0.85rem',
+            fontSize: '0.9rem',
+            boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
           }}
         >
-          <PhoneOff size={18} /> Leave
+          <PhoneOff size={18} /> Leave Call
         </button>
 
         {/* End Meeting Button (Doctor only) */}
         {user?.role === 'doctor' && (
           <button
-            onClick={handleEndMeeting}
-            title="End Meeting & Save Final Transcript"
+            onClick={() => setShowEndModal(true)}
+            title="Conclude Consultation Session"
             style={{
-              padding: '0 1.25rem',
-              height: '46px',
+              padding: '0 1.5rem',
+              height: '48px',
               borderRadius: 'var(--radius-full)',
-              background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+              background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
               color: '#fff',
-              border: '1px solid rgba(124, 58, 237, 0.3)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
               fontWeight: 700,
-              fontSize: '0.85rem',
-              boxShadow: '0 4px 12px rgba(124, 58, 237, 0.25)',
+              fontSize: '0.9rem',
+              boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)',
             }}
           >
-            <CheckCircle2 size={18} /> End & Save Transcript
+            <CheckCircle2 size={18} /> End Consultation
           </button>
         )}
       </div>
@@ -1383,7 +1017,7 @@ export function MeetingRoomPage() {
   );
 }
 
-// ─── Small Helper: Rejoin Countdown Component ──────────────────────────────
+// ─── Rejoin Countdown Helper Component ─────────────────────────────────────
 function RejoinCountdown({ endTime }) {
   const [remaining, setRemaining] = useState('');
 

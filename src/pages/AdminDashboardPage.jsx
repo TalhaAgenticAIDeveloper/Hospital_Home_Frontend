@@ -13,7 +13,6 @@ import {
   AlertOctagon,
   Search,
   X,
-  Stethoscope,
 } from 'lucide-react';
 
 export function AdminDashboardPage() {
@@ -29,10 +28,6 @@ export function AdminDashboardPage() {
   const [doctorToDelete, setDoctorToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => {
-    loadDoctors();
-  }, [activeTab]);
-
   const loadDoctors = async (searchOverride) => {
     setIsLoading(true);
     try {
@@ -43,15 +38,17 @@ export function AdminDashboardPage() {
       });
       setDoctors(data.items || []);
       setTotalCount(data.total || 0);
-      if (data.counts) {
-        setStatusCounts(data.counts);
-      }
+      setStatusCounts(data.status_counts || { total: 0, pending: 0, active: 0, rejected: 0 });
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to fetch doctor applications.' });
+      setToast({ type: 'error', message: err.message || 'Failed to load doctors.' });
     } finally {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadDoctors();
+  }, [activeTab]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();

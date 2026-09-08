@@ -100,10 +100,7 @@ export function LeaveWarningModal({ isOpen, onConfirm, onCancel, isDoctor = fals
             margin: '0 0 0.75rem 0',
           }}
         >
-          Are you sure you want to leave this consultation?
-          {isDoctor
-            ? ' Your current session transcript will be saved automatically.'
-            : ' You can rejoin if the meeting time has not expired.'}
+          Are you sure you want to leave this consultation? You can rejoin at any time as long as the meeting window has not expired.
         </p>
 
         {/* Info badge */}

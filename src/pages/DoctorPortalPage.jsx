@@ -17,7 +17,6 @@ import {
   RefreshCw,
   Clock,
   CheckCircle2,
-  Circle,
   Send,
   AlertTriangle,
   FileText,
@@ -34,10 +33,6 @@ export function DoctorPortalPage() {
   const [showResubmitModal, setShowResubmitModal] = useState(false);
   const [activeTab, setActiveTab] = useState('consultations'); // 'consultations' | 'availability' | 'profile'
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
   const loadProfile = async () => {
     setIsLoading(true);
     try {
@@ -51,6 +46,10 @@ export function DoctorPortalPage() {
     }
   };
 
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
   if (isLoading) {
     return <Loader fullScreen text="Loading doctor credentials and onboarding status..." />;
   }
@@ -58,7 +57,6 @@ export function DoctorPortalPage() {
   const isUnderReview = profile?.status === 'pending' && !!profile?.submitted_at;
   const isRejected = profile?.status === 'rejected';
   const isActive = profile?.status === 'active';
-  const isDraft = profile?.status === 'pending' && !profile?.submitted_at;
 
   const handleResubmitCompleted = () => {
     setShowResubmitModal(false);
@@ -251,7 +249,7 @@ export function DoctorPortalPage() {
             }}
           >
             <Video size={18} />
-            Patient Appointments & Transcripts
+            Patient Appointments & Consultations
           </button>
 
           <button
