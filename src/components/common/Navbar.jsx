@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Badge } from './Badge';
 import {
   Activity,
   LogOut,
-  ShieldCheck,
-  Stethoscope,
   LayoutDashboard,
+  User,
+  ArrowRight,
   Menu,
   X,
 } from 'lucide-react';
@@ -27,95 +26,81 @@ export function Navbar() {
   const closeMenu = () => setMobileMenuOpen(false);
   const isActive = (path) => location.pathname === path;
 
+  // Compute dashboard destination based on user role
+  const getDashboardPath = () => {
+    if (isDoctor) return '/doctor/portal';
+    if (isAdmin) return '/admin/dashboard';
+    return '/patient/dashboard';
+  };
+
+  const getRoleLabel = () => {
+    if (isAdmin) return 'SaaS Admin';
+    if (isDoctor) return 'Doctor';
+    return 'Patient';
+  };
+
   return (
     <header className="navbar">
       <div className="container navbar-inner">
+        {/* Brand Logo */}
         <Link to="/" className="nav-brand" onClick={closeMenu}>
-          <Activity size={26} strokeWidth={2.5} />
-          <span>MedTrust<span style={{ color: 'var(--accent)' }}>SaaS</span></span>
+          <div className="nav-brand-icon">
+            <Activity size={22} strokeWidth={2.5} />
+          </div>
+          <span className="nav-brand-text">
+            MedTrust<span className="brand-accent">Pro</span>
+          </span>
         </Link>
 
-        {/* Desktop Navigation Links */}
-        <nav className="nav-links desktop-nav">
+        {/* Desktop Navigation */}
+        <nav className="desktop-nav">
           {!isAuthenticated ? (
-            <>
-              <Link to="/" className={`nav-link ${isActive('/') ? 'active' : ''}`}>
-                Home
-              </Link>
-              <Link to="/login" className={`nav-link ${isActive('/login') ? 'active' : ''}`}>
+            <div className="nav-auth-actions">
+              <Link to="/login" className="nav-link">
                 Sign In
               </Link>
-              <Link to="/signup" className="btn btn-primary btn-sm">
-                Register Account
+              <Link to="/signup" className="btn btn-primary btn-sm nav-cta-btn">
+                <span>Get Started</span>
+                <ArrowRight size={15} />
               </Link>
-              <Link
-                to="/admin/login"
-                className={`nav-link ${isActive('/admin/login') ? 'active' : ''}`}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-muted)' }}
-              >
-                <ShieldCheck size={16} />
-                Admin Portal
-              </Link>
-            </>
+            </div>
           ) : (
-            <>
-              {isPatient && (
-                <Link
-                  to="/patient/dashboard"
-                  className={`nav-link ${isActive('/patient/dashboard') ? 'active' : ''}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                >
-                  <LayoutDashboard size={18} />
-                  Patient Dashboard
-                </Link>
-              )}
+            <div className="nav-user-actions">
+              {/* Single direct link to user's dashboard */}
+              <Link
+                to={getDashboardPath()}
+                className="btn btn-primary btn-sm nav-dashboard-btn"
+              >
+                <LayoutDashboard size={16} />
+                <span>Open Dashboard</span>
+              </Link>
 
-              {isDoctor && (
-                <Link
-                  to="/doctor/portal"
-                  className={`nav-link ${isActive('/doctor/portal') ? 'active' : ''}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                >
-                  <Stethoscope size={18} />
-                  Doctor Verification Portal
-                </Link>
-              )}
-
-              {isAdmin && (
-                <Link
-                  to="/admin/dashboard"
-                  className={`nav-link ${isActive('/admin/dashboard') ? 'active' : ''}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                >
-                  <ShieldCheck size={18} />
-                  Admin Review Queue
-                </Link>
-              )}
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingLeft: '0.75rem', borderLeft: '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.2 }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {/* Minimalist User Pill */}
+              <div className="nav-user-pill">
+                <div className="nav-user-avatar">
+                  <User size={15} />
+                </div>
+                <div className="nav-user-meta">
+                  <span className="nav-user-email" title={user?.email}>
                     {user?.email}
                   </span>
-                  <div style={{ display: 'flex', gap: '0.35rem', marginTop: '2px' }}>
-                    <Badge role={user?.role} />
-                    {user?.status && user?.role !== 'saas_admin' && (
-                      <Badge status={user?.status} />
-                    )}
-                  </div>
+                  <span className="nav-user-role">
+                    {getRoleLabel()}
+                  </span>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="btn btn-secondary btn-sm"
-                  title="Sign Out"
-                  style={{ padding: '0.45rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                >
-                  <LogOut size={16} />
-                </button>
               </div>
-            </>
+
+              {/* Clean Logout Button */}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="nav-logout-btn"
+                title="Sign Out"
+                aria-label="Sign Out"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
           )}
         </nav>
 
@@ -126,95 +111,61 @@ export function Navbar() {
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           aria-label="Toggle navigation menu"
         >
-          {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
       </div>
 
-      {/* Mobile Dropdown Navigation Menu */}
+      {/* Mobile Dropdown Navigation */}
       {mobileMenuOpen && (
         <div className="mobile-nav animate-fade-in">
-          <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1rem 1.25rem 1.5rem' }}>
+          <div className="container mobile-nav-inner">
             {!isAuthenticated ? (
-              <>
-                <Link to="/" className={`nav-link ${isActive('/') ? 'active' : ''}`} onClick={closeMenu}>
-                  Home
-                </Link>
-                <Link to="/login" className={`nav-link ${isActive('/login') ? 'active' : ''}`} onClick={closeMenu}>
+              <div className="mobile-auth-links">
+                <Link
+                  to="/login"
+                  className="btn btn-secondary btn-block"
+                  onClick={closeMenu}
+                >
                   Sign In
                 </Link>
-                <Link to="/signup" className="btn btn-primary btn-block" onClick={closeMenu}>
-                  Register Account
-                </Link>
                 <Link
-                  to="/admin/login"
-                  className={`nav-link ${isActive('/admin/login') ? 'active' : ''}`}
+                  to="/signup"
+                  className="btn btn-primary btn-block"
                   onClick={closeMenu}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)' }}
                 >
-                  <ShieldCheck size={16} />
-                  Admin Portal
+                  Get Started
                 </Link>
-              </>
+              </div>
             ) : (
-              <>
-                <div style={{ padding: '0.75rem', background: 'var(--bg-alt)', borderRadius: 'var(--radius-md)', marginBottom: '0.5rem' }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                    {user?.email}
+              <div className="mobile-user-panel">
+                <div className="mobile-user-card">
+                  <div className="nav-user-avatar">
+                    <User size={16} />
                   </div>
-                  <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
-                    <Badge role={user?.role} />
-                    {user?.status && user?.role !== 'saas_admin' && (
-                      <Badge status={user?.status} />
-                    )}
+                  <div className="nav-user-meta">
+                    <span className="nav-user-email">{user?.email}</span>
+                    <span className="nav-user-role">{getRoleLabel()}</span>
                   </div>
                 </div>
 
-                {isPatient && (
-                  <Link
-                    to="/patient/dashboard"
-                    className={`nav-link ${isActive('/patient/dashboard') ? 'active' : ''}`}
-                    onClick={closeMenu}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                  >
-                    <LayoutDashboard size={18} />
-                    Patient Dashboard
-                  </Link>
-                )}
-
-                {isDoctor && (
-                  <Link
-                    to="/doctor/portal"
-                    className={`nav-link ${isActive('/doctor/portal') ? 'active' : ''}`}
-                    onClick={closeMenu}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                  >
-                    <Stethoscope size={18} />
-                    Doctor Verification Portal
-                  </Link>
-                )}
-
-                {isAdmin && (
-                  <Link
-                    to="/admin/dashboard"
-                    className={`nav-link ${isActive('/admin/dashboard') ? 'active' : ''}`}
-                    onClick={closeMenu}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                  >
-                    <ShieldCheck size={18} />
-                    Admin Review Queue
-                  </Link>
-                )}
+                <Link
+                  to={getDashboardPath()}
+                  className="btn btn-primary btn-block"
+                  onClick={closeMenu}
+                >
+                  <LayoutDashboard size={17} />
+                  <span>Open Dashboard</span>
+                </Link>
 
                 <button
                   type="button"
                   onClick={handleLogout}
                   className="btn btn-secondary btn-block"
-                  style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
                 >
                   <LogOut size={16} />
-                  Sign Out
+                  <span>Sign Out</span>
                 </button>
-              </>
+              </div>
             )}
           </div>
         </div>

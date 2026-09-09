@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { meetingApi } from '../api/meeting';
@@ -22,6 +22,15 @@ import {
   LogIn,
   FileText,
   X,
+  FolderOpen,
+  ArrowLeft,
+  Eye,
+  Sparkles,
+  BookOpen,
+  ChevronRight,
+  Maximize2,
+  Minimize2,
+  List,
 } from 'lucide-react';
 
 const ICE_SERVERS = {
@@ -59,6 +68,20 @@ export function MeetingRoomPage() {
   const [canRejoin, setCanRejoin] = useState(false);
   const [bothJoined, setBothJoined] = useState(false);
 
+  // ─── Document Panel States ────────────────────────────────────────────
+  const [showDocPanel, setShowDocPanel] = useState(false);
+  const [meetingDocs, setMeetingDocs] = useState([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState(null);
+  const [docPanelTab, setDocPanelTab] = useState('all_summaries'); // 'all_summaries' | 'files'
+  const [docViewMode, setDocViewMode] = useState('summary'); // 'summary' | 'original'
+  const [docBlobUrl, setDocBlobUrl] = useState(null);
+  const [docBlobLoading, setDocBlobLoading] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isBulkSummarizing, setIsBulkSummarizing] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, currentFileName: '' });
+  const [panelExpanded, setPanelExpanded] = useState(false);
+
   // DOM and WebRTC refs
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -77,6 +100,9 @@ export function MeetingRoomPage() {
         const data = await meetingApi.getMeetingDetails(meetingId);
         if (!isMounted) return;
         setMeeting(data);
+        if (data.attached_documents && data.attached_documents.length > 0) {
+          setMeetingDocs(data.attached_documents);
+        }
         setIsLoadingMeeting(false);
 
         if (data.status === 'completed') {
@@ -117,6 +143,197 @@ export function MeetingRoomPage() {
       localVideoRef.current.srcObject = localStream;
     }
   }, [localStream]);
+
+  // ─── Fetch meeting documents immediately and refresh on panel toggle ───
+  useEffect(() => {
+    if (!meeting) return;
+
+    const fetchDocs = async () => {
+      setDocsLoading(true);
+      try {
+        const targetId = meeting.id || meetingId;
+        const docs = await meetingApi.getMeetingPatientDocuments(targetId);
+        if (docs && docs.length > 0) {
+          setMeetingDocs(docs);
+        }
+      } catch (err) {
+        console.error('Failed to load meeting documents:', err);
+      } finally {
+        setDocsLoading(false);
+      }
+    };
+
+    fetchDocs();
+  }, [meeting?.id, meetingId, showDocPanel]);
+
+  // ─── Auto-fetch document blob URL whenever in original mode ───────────
+  useEffect(() => {
+    if (docViewMode !== 'original' || !selectedDoc || !meeting) return;
+    const docId = selectedDoc.patient_document_id || selectedDoc.id;
+    if (!docId) return;
+
+    let isMounted = true;
+    setDocBlobLoading(true);
+
+    const targetMeetingId = meeting.id || meetingId;
+    meetingApi
+      .getMeetingPatientDocumentBlobUrl(targetMeetingId, docId)
+      .then((blobUrl) => {
+        if (!isMounted) {
+          window.URL.revokeObjectURL(blobUrl);
+          return;
+        }
+        setDocBlobUrl(blobUrl);
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        console.error('Failed to load document for viewing:', err);
+        setToast({ type: 'error', message: 'Could not load document preview.' });
+      })
+      .finally(() => {
+        if (isMounted) setDocBlobLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [docViewMode, selectedDoc?.patient_document_id, selectedDoc?.id, meeting?.id, meetingId]);
+
+  // ─── Cleanup blob URL when changing docs or closing ────────────────────
+  useEffect(() => {
+    return () => {
+      if (docBlobUrl) {
+        window.URL.revokeObjectURL(docBlobUrl);
+      }
+    };
+  }, [docBlobUrl]);
+
+  // ─── Document Panel Handlers ──────────────────────────────────────────
+  const handleSelectDoc = useCallback((doc, mode = 'summary') => {
+    if (docBlobUrl) {
+      window.URL.revokeObjectURL(docBlobUrl);
+      setDocBlobUrl(null);
+    }
+    setSelectedDoc(doc);
+    setDocPanelTab('files');
+    setDocViewMode(mode);
+  }, [docBlobUrl]);
+
+  const handleBackToList = useCallback(() => {
+    if (docBlobUrl) {
+      window.URL.revokeObjectURL(docBlobUrl);
+      setDocBlobUrl(null);
+    }
+    setSelectedDoc(null);
+    setDocViewMode('summary');
+  }, [docBlobUrl]);
+
+  const handleViewOriginal = useCallback(() => {
+    setDocViewMode('original');
+  }, []);
+
+  const handleViewOriginalForDoc = useCallback((doc) => {
+    if (docBlobUrl) {
+      window.URL.revokeObjectURL(docBlobUrl);
+      setDocBlobUrl(null);
+    }
+    setSelectedDoc(doc);
+    setDocPanelTab('files');
+    setDocViewMode('original');
+  }, [docBlobUrl]);
+
+  const handleSummarizeSingleDoc = useCallback(async (docToSummarize) => {
+    const targetDoc = docToSummarize || selectedDoc;
+    if (!targetDoc || !meeting) return;
+    setIsSummarizing(true);
+    try {
+      const result = await meetingApi.summarizeMeetingPatientDocument(
+        meeting.id,
+        targetDoc.patient_document_id,
+        true
+      );
+      setMeetingDocs((prev) =>
+        prev.map((d) =>
+          d.patient_document_id === targetDoc.patient_document_id
+            ? {
+                ...d,
+                ai_summary: result.summary,
+                ai_summary_status: result.status,
+                ai_summary_generated_at: result.generated_at,
+              }
+            : d
+        )
+      );
+      if (selectedDoc && selectedDoc.patient_document_id === targetDoc.patient_document_id) {
+        setSelectedDoc((prev) => ({
+          ...prev,
+          ai_summary: result.summary,
+          ai_summary_status: result.status,
+          ai_summary_generated_at: result.generated_at,
+        }));
+      }
+      setToast({ type: 'success', message: `Summary generated for ${targetDoc.label || targetDoc.original_filename}` });
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'documents-updated' }));
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to generate summary.' });
+    } finally {
+      setIsSummarizing(false);
+    }
+  }, [selectedDoc, meeting]);
+
+  const handleSummarizeAllDocs = useCallback(async (forceRefresh = true) => {
+    if (!meeting || meetingDocs.length === 0) return;
+    setIsBulkSummarizing(true);
+    setBulkProgress({ current: 0, total: meetingDocs.length, currentFileName: '' });
+    setDocPanelTab('all_summaries');
+    setSelectedDoc(null);
+
+    let updatedDocs = [...meetingDocs];
+
+    for (let i = 0; i < meetingDocs.length; i++) {
+      const doc = meetingDocs[i];
+      const fileName = doc.label || doc.original_filename;
+      setBulkProgress({ current: i + 1, total: meetingDocs.length, currentFileName: fileName });
+
+      try {
+        const result = await meetingApi.summarizeMeetingPatientDocument(
+          meeting.id,
+          doc.patient_document_id,
+          true
+        );
+        updatedDocs = updatedDocs.map((d) =>
+          d.patient_document_id === doc.patient_document_id
+            ? {
+                ...d,
+                ai_summary: result.summary,
+                ai_summary_status: result.status,
+                ai_summary_generated_at: result.generated_at,
+              }
+            : d
+        );
+        setMeetingDocs([...updatedDocs]);
+      } catch (err) {
+        console.error(`Failed to summarize doc ${doc.id}:`, err);
+      }
+    }
+
+    setIsBulkSummarizing(false);
+    setToast({ type: 'success', message: 'All documents processed by AI!' });
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'documents-updated' }));
+    }
+  }, [meeting, meetingDocs]);
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
 
   // ─── Check rejoin eligibility whenever sessionState changes ───────────
   useEffect(() => {
@@ -331,6 +548,17 @@ export function MeetingRoomPage() {
             setSessionState('completed');
             setToast({ type: 'info', message: 'Consultation has been ended by the other party.' });
             cleanupCall();
+            break;
+
+          case 'documents-updated':
+            if (meetingData) {
+              meetingApi.getMeetingPatientDocuments(meetingData.id)
+                .then((docs) => {
+                  setMeetingDocs(docs || []);
+                  setToast({ type: 'info', message: 'Medical document summaries updated.' });
+                })
+                .catch((e) => console.warn('Failed to refresh docs on WS update:', e));
+            }
             break;
 
           default:
@@ -786,121 +1014,588 @@ export function MeetingRoomPage() {
         </div>
       </div>
 
-      {/* Main Video Area (Full Width) */}
-      <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden', background: '#020617' }}>
-        {/* Remote Video (Peer) */}
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            display: peerConnected ? 'block' : 'none',
-          }}
-        />
-
-        {/* Peer Waiting Placeholder */}
-        {!peerConnected && (
-          <div style={{ margin: 'auto', textAlign: 'center', color: '#94a3b8', padding: '2rem' }}>
-            <div
-              style={{
-                width: '88px',
-                height: '88px',
-                borderRadius: '50%',
-                background: 'rgba(255,255,255,0.05)',
-                margin: '0 auto 1.25rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '1px dashed rgba(255,255,255,0.2)',
-              }}
-            >
-              <User size={40} color="#64748b" />
-            </div>
-            <h3 style={{ fontSize: '1.25rem', color: '#f1f5f9', marginBottom: '0.5rem', fontWeight: 600 }}>
-              {peerName}
-            </h3>
-            <p style={{ fontSize: '0.9rem', maxWidth: '420px', margin: '0 auto', lineHeight: 1.6, color: '#94a3b8' }}>
-              You have entered the secure consultation room. When the other participant joins, your audio and video will connect automatically.
-            </p>
-          </div>
-        )}
-
-        {/* Local Video Picture-in-Picture */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '1.5rem',
-            right: '1.5rem',
-            width: '220px',
-            height: '145px',
-            borderRadius: '12px',
-            overflow: 'hidden',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.6)',
-            border: '2px solid rgba(255,255,255,0.2)',
-            background: '#1e293b',
-            zIndex: 10,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
+      {/* Main Video Area + Document Panel (Flex Row) */}
+      <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* Video Area */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#020617' }}>
+          {/* Remote Video (Peer) */}
           <video
-            ref={localVideoRef}
+            ref={remoteVideoRef}
             autoPlay
             playsInline
-            muted
             style={{
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              transform: 'scaleX(-1)',
-              display: mediaStatus === 'ready' && !isVideoMuted ? 'block' : 'none',
+              display: peerConnected ? 'block' : 'none',
             }}
           />
 
-          {mediaStatus === 'requesting' && (
-            <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-              Connecting camera...
+          {/* Peer Waiting Placeholder */}
+          {!peerConnected && (
+            <div style={{ margin: 'auto', textAlign: 'center', color: '#94a3b8', padding: '2rem', position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <div
+                style={{
+                  width: '88px',
+                  height: '88px',
+                  borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.05)',
+                  margin: '0 auto 1.25rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px dashed rgba(255,255,255,0.2)',
+                }}
+              >
+                <User size={40} color="#64748b" />
+              </div>
+              <h3 style={{ fontSize: '1.25rem', color: '#f1f5f9', marginBottom: '0.5rem', fontWeight: 600 }}>
+                {peerName}
+              </h3>
+              <p style={{ fontSize: '0.9rem', maxWidth: '420px', margin: '0 auto', lineHeight: 1.6, color: '#94a3b8' }}>
+                You have entered the secure consultation room. When the other participant joins, your audio and video will connect automatically.
+              </p>
             </div>
           )}
 
-          {mediaStatus === 'no-camera' && (
-            <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-              <Mic size={20} color="#10b981" style={{ marginBottom: '4px' }} />
-              <div>Audio Only</div>
-            </div>
-          )}
-
-          {mediaStatus === 'blocked' && (
-            <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.7rem', color: '#f87171' }}>
-              Camera/Mic blocked in browser
-            </div>
-          )}
-
-          {mediaStatus === 'ready' && isVideoMuted && (
-            <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-              Camera Off
-            </div>
-          )}
-
+          {/* Local Video Picture-in-Picture */}
           <div
             style={{
               position: 'absolute',
-              bottom: '6px',
-              left: '8px',
-              fontSize: '0.7rem',
-              background: 'rgba(0,0,0,0.7)',
-              padding: '2px 8px',
-              borderRadius: '4px',
-              fontWeight: 600,
+              top: '1.5rem',
+              right: '1.5rem',
+              width: '220px',
+              height: '145px',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.6)',
+              border: '2px solid rgba(255,255,255,0.2)',
+              background: '#1e293b',
+              zIndex: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            You ({user?.role === 'doctor' ? 'Doctor' : 'Patient'})
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                transform: 'scaleX(-1)',
+                display: mediaStatus === 'ready' && !isVideoMuted ? 'block' : 'none',
+              }}
+            />
+
+            {mediaStatus === 'requesting' && (
+              <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+                Connecting camera...
+              </div>
+            )}
+
+            {mediaStatus === 'no-camera' && (
+              <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+                <Mic size={20} color="#10b981" style={{ marginBottom: '4px' }} />
+                <div>Audio Only</div>
+              </div>
+            )}
+
+            {mediaStatus === 'blocked' && (
+              <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.7rem', color: '#f87171' }}>
+                Camera/Mic blocked in browser
+              </div>
+            )}
+
+            {mediaStatus === 'ready' && isVideoMuted && (
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                Camera Off
+              </div>
+            )}
+
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '6px',
+                left: '8px',
+                fontSize: '0.7rem',
+                background: 'rgba(0,0,0,0.7)',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontWeight: 600,
+              }}
+            >
+              You ({user?.role === 'doctor' ? 'Doctor' : 'Patient'})
+            </div>
           </div>
         </div>
+
+        {/* ─── Document Panel (Right Side) ────────────────────────────── */}
+        {showDocPanel && (
+          <div className={`meeting-doc-panel ${panelExpanded ? 'expanded' : ''}`}>
+            {/* Panel Header */}
+            <div className="meeting-doc-panel-header">
+              <h3>
+                <FolderOpen size={16} color="#60a5fa" />
+                Consultation Documents {meetingDocs.length > 0 && `(${meetingDocs.length})`}
+              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <button
+                  type="button"
+                  className="doc-panel-expand-btn"
+                  onClick={() => setPanelExpanded((prev) => !prev)}
+                  title={panelExpanded ? 'Compact panel width' : 'Expand panel width for easier reading'}
+                  aria-label={panelExpanded ? 'Compact panel width' : 'Expand panel width'}
+                >
+                  {panelExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>
+                <button
+                  type="button"
+                  className="doc-panel-close-btn"
+                  onClick={() => { setShowDocPanel(false); setSelectedDoc(null); }}
+                  title="Close documents panel"
+                  aria-label="Close documents panel"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Loading State */}
+            {docsLoading && (
+              <div className="meeting-doc-loading">
+                <div className="meeting-doc-loading-spinner" />
+                <span>Loading documents...</span>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!docsLoading && meetingDocs.length === 0 && (
+              <div className="meeting-doc-empty">
+                <div className="meeting-doc-empty-icon">
+                  <FileText size={24} color="#475569" />
+                </div>
+                <h4>No Documents Attached</h4>
+                <p>No medical documents were shared for this consultation appointment.</p>
+              </div>
+            )}
+
+            {/* Navigation Bar & Bulk Actions Toolbar (when docs exist) */}
+            {!docsLoading && meetingDocs.length > 0 && (
+              <div className="meeting-doc-subnav">
+                <div className="meeting-doc-nav-tabs">
+                  <button
+                    type="button"
+                    className={`meeting-doc-nav-tab ${docPanelTab === 'all_summaries' && !selectedDoc ? 'active' : ''}`}
+                    onClick={() => {
+                      setDocPanelTab('all_summaries');
+                      setSelectedDoc(null);
+                    }}
+                  >
+                    <Sparkles size={12} />
+                    All Summaries
+                    {meetingDocs.filter((d) => d.ai_summary).length > 0 && (
+                      <span style={{ fontSize: '0.65rem', background: 'rgba(59,130,246,0.2)', color: '#93c5fd', padding: '1px 5px', borderRadius: '999px' }}>
+                        {meetingDocs.filter((d) => d.ai_summary).length}/{meetingDocs.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className={`meeting-doc-nav-tab ${docPanelTab === 'files' || selectedDoc ? 'active' : ''}`}
+                    onClick={() => {
+                      setDocPanelTab('files');
+                    }}
+                  >
+                    <List size={12} />
+                    Files ({meetingDocs.length})
+                  </button>
+                </div>
+
+                {/* Doctor Bulk Summarize Button */}
+                {user?.role === 'doctor' && (
+                  <button
+                    type="button"
+                    className="meeting-doc-btn-summarize-all"
+                    onClick={() => handleSummarizeAllDocs(false)}
+                    disabled={isBulkSummarizing}
+                    title="AI analyzes each attached medical document sequentially and produces distinct summaries"
+                  >
+                    {isBulkSummarizing ? (
+                      <>
+                        <span
+                          style={{
+                            width: '12px',
+                            height: '12px',
+                            border: '2px solid rgba(255,255,255,0.3)',
+                            borderTopColor: '#ffffff',
+                            borderRadius: '50%',
+                            display: 'inline-block',
+                            animation: 'spin 0.6s linear infinite',
+                          }}
+                        />
+                        <span>Analyzing ({bulkProgress.current}/{bulkProgress.total})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={12} />
+                        <span>
+                          {meetingDocs.every((d) => d.ai_summary)
+                            ? 'Re-summarize All'
+                            : 'Summarize All Documents'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Bulk Summarize Progress Indicator */}
+            {isBulkSummarizing && (
+              <div className="meeting-doc-bulk-progress">
+                <div className="meeting-doc-bulk-progress-info">
+                  <span>
+                    Analyzing document {bulkProgress.current} of {bulkProgress.total}:{' '}
+                    <strong style={{ color: '#ffffff' }}>{bulkProgress.currentFileName}</strong>
+                  </span>
+                  <span>{Math.round((bulkProgress.current / bulkProgress.total) * 100)}%</span>
+                </div>
+                <div className="meeting-doc-bulk-progress-track">
+                  <div
+                    className="meeting-doc-bulk-progress-fill"
+                    style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Tab 1: All Summaries View */}
+            {!docsLoading && meetingDocs.length > 0 && docPanelTab === 'all_summaries' && !selectedDoc && (
+              <div className="meeting-doc-all-summaries">
+                <div style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.2rem 0.25rem' }}>
+                  <ShieldCheck size={14} color="#34d399" />
+                  Clinical AI Summaries — Sequential Analysis per File
+                </div>
+
+                {meetingDocs.map((doc) => (
+                  <div key={doc.id} className="meeting-doc-summary-card">
+                    {/* Header with Document Name & Tag */}
+                    <div className="meeting-doc-summary-card-header">
+                      <div className="meeting-doc-card-title-group">
+                        <FileText
+                          size={16}
+                          color={doc.mime_type === 'application/pdf' ? '#d97706' : '#3b82f6'}
+                          style={{ flexShrink: 0 }}
+                        />
+                        <div style={{ minWidth: 0 }}>
+                          <div className="meeting-doc-card-title">
+                            {doc.label || doc.original_filename}
+                          </div>
+                          {doc.label && (
+                            <div className="meeting-doc-card-subname">
+                              {doc.original_filename}
+                            </div>
+                          )}
+                        </div>
+                        <span
+                          className={`meeting-doc-item-badge ${
+                            doc.ai_summary ? 'has-summary' : 'no-summary'
+                          }`}
+                        >
+                          {doc.ai_summary ? 'Summary Ready' : 'Pending'}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="meeting-doc-card-btn-view"
+                        onClick={() => handleViewOriginalForDoc(doc)}
+                        title={`View original ${doc.label || doc.original_filename}`}
+                      >
+                        <Eye size={12} />
+                        View Original
+                      </button>
+                    </div>
+
+                    {/* Summary Body */}
+                    <div className="meeting-doc-summary-card-body">
+                      {doc.ai_summary ? (
+                        <>
+                          {doc.ai_summary.split('\n').map((line, i) => (
+                            <p key={i} style={{ margin: line.trim() ? '0 0 0.45rem' : '0 0 0.2rem' }}>
+                              {line || '\u00A0'}
+                            </p>
+                          ))}
+                        </>
+                      ) : (
+                        <div style={{ color: '#64748b', fontStyle: 'italic', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span>No summary generated yet for this file.</span>
+                          {user?.role === 'doctor' && (
+                            <button
+                              type="button"
+                              className="meeting-doc-generate-btn"
+                              style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem' }}
+                              onClick={() => handleSummarizeSingleDoc(doc)}
+                              disabled={isSummarizing || isBulkSummarizing}
+                            >
+                              <Sparkles size={11} /> Summarize
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {doc.ai_summary_generated_at && (
+                      <div className="meeting-doc-summary-card-footer">
+                        <span>Generated: {new Date(doc.ai_summary_generated_at).toLocaleString()}</span>
+                        <span>{doc.mime_type === 'application/pdf' ? 'PDF' : 'Image'} • {formatFileSize(doc.file_size)}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Tab 2: Document List (when in Files tab and no doc is selected) */}
+            {!docsLoading && meetingDocs.length > 0 && docPanelTab === 'files' && !selectedDoc && (
+              <div className="meeting-doc-list">
+                {meetingDocs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="meeting-doc-item"
+                    onClick={() => handleSelectDoc(doc, 'summary')}
+                  >
+                    <div className="meeting-doc-item-icon">
+                      <FileText size={18} />
+                    </div>
+                    <div className="meeting-doc-item-info">
+                      <div className="meeting-doc-item-name">
+                        {doc.label || doc.original_filename}
+                      </div>
+                      <div className="meeting-doc-item-meta">
+                        <span>{formatFileSize(doc.file_size)}</span>
+                        <span>•</span>
+                        <span>{doc.mime_type === 'application/pdf' ? 'PDF' : 'Image'}</span>
+                        <span>•</span>
+                        <span
+                          className={`meeting-doc-item-badge ${
+                            doc.ai_summary ? 'has-summary' : 'no-summary'
+                          }`}
+                        >
+                          {doc.ai_summary ? 'Summary Ready' : 'No Summary'}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <button
+                        type="button"
+                        className="meeting-doc-card-btn-view"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleViewOriginalForDoc(doc);
+                        }}
+                        title={`View original ${doc.label || doc.original_filename}`}
+                      >
+                        <Eye size={12} />
+                        Original
+                      </button>
+                      <ChevronRight size={16} color="#475569" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Document Viewer (when a specific doc is selected) */}
+            {!docsLoading && selectedDoc && (
+              <div className="meeting-doc-viewer">
+                {/* Viewer Header */}
+                <div className="meeting-doc-viewer-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                    <FileText size={14} color={selectedDoc.mime_type === 'application/pdf' ? '#d97706' : '#3b82f6'} />
+                    <span className="meeting-doc-viewer-title">
+                      {selectedDoc.label || selectedDoc.original_filename}
+                    </span>
+                  </div>
+                  <button className="meeting-doc-viewer-back" onClick={handleBackToList}>
+                    <ArrowLeft size={12} /> Back to Files
+                  </button>
+                </div>
+
+                {/* View Mode Tabs */}
+                <div className="meeting-doc-tabs">
+                  <button
+                    type="button"
+                    className={`meeting-doc-tab ${docViewMode === 'summary' ? 'active' : ''}`}
+                    onClick={() => setDocViewMode('summary')}
+                  >
+                    <Sparkles size={13} /> AI Summary
+                  </button>
+                  <button
+                    type="button"
+                    className={`meeting-doc-tab ${docViewMode === 'original' ? 'active' : ''}`}
+                    onClick={handleViewOriginal}
+                  >
+                    <Eye size={13} /> View Original (Read-Only)
+                  </button>
+                </div>
+
+                {/* Summary View */}
+                {docViewMode === 'summary' && (
+                  <>
+                    {selectedDoc.ai_summary ? (
+                      <div className="meeting-doc-summary-content">
+                        <div style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', color: '#34d399', fontWeight: 600 }}>
+                          <Sparkles size={12} />
+                          AI-Generated Clinical Summary
+                        </div>
+                        {selectedDoc.ai_summary.split('\n').map((line, i) => (
+                          <p key={i} style={{ margin: line.trim() ? '0 0 0.5rem' : '0 0 0.25rem' }}>
+                            {line || '\u00A0'}
+                          </p>
+                        ))}
+                        {selectedDoc.ai_summary_generated_at && (
+                          <div style={{ marginTop: '1rem', fontSize: '0.68rem', color: '#475569', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem' }}>
+                            Generated: {new Date(selectedDoc.ai_summary_generated_at).toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="meeting-doc-summary-empty">
+                        <BookOpen size={32} color="#475569" />
+                        <p>No AI summary has been generated for this document yet.</p>
+                        {user?.role === 'doctor' && (
+                          <button
+                            type="button"
+                            className="meeting-doc-generate-btn"
+                            onClick={() => handleSummarizeSingleDoc(selectedDoc)}
+                            disabled={isSummarizing || isBulkSummarizing}
+                          >
+                            {isSummarizing ? (
+                              <><div className="meeting-doc-loading-spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} /> Generating...</>
+                            ) : (
+                              <><Sparkles size={14} /> Generate AI Summary</>
+                            )}
+                          </button>
+                        )}
+                        {user?.role === 'patient' && (
+                          <p style={{ fontSize: '0.72rem', color: '#475569', marginTop: '0.5rem' }}>
+                            The doctor can generate a summary during this consultation.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Original Document View (Strictly Read-Only, No Download) */}
+                {docViewMode === 'original' && (
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      width: '100%',
+                      height: '100%',
+                      minHeight: '400px',
+                      overflow: 'hidden',
+                      position: 'relative',
+                    }}
+                  >
+                    {docBlobLoading ? (
+                      <div className="meeting-doc-loading" style={{ minHeight: '300px' }}>
+                        <div className="meeting-doc-loading-spinner" />
+                        <span>Loading document preview...</span>
+                      </div>
+                    ) : docBlobUrl ? (
+                      <div
+                        className="meeting-doc-original-viewer"
+                        onContextMenu={(e) => e.preventDefault()}
+                        style={{
+                          flex: 1,
+                          width: '100%',
+                          height: '100%',
+                          minHeight: '400px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: selectedDoc.mime_type === 'application/pdf' ? '#525659' : '#0f172a',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {selectedDoc.mime_type === 'application/pdf' ? (
+                          <iframe
+                            src={`${docBlobUrl}#toolbar=0&navpanes=0&scrollbar=1`}
+                            title={selectedDoc.original_filename || 'PDF Preview'}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              minHeight: '400px',
+                              border: 'none',
+                              background: '#ffffff',
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              minHeight: '350px',
+                              overflow: 'auto',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '1rem',
+                            }}
+                          >
+                            <img
+                              src={docBlobUrl}
+                              alt={selectedDoc.label || selectedDoc.original_filename}
+                              draggable={false}
+                              style={{
+                                maxWidth: '100%',
+                                maxHeight: '100%',
+                                objectFit: 'contain',
+                                pointerEvents: 'none',
+                                userSelect: 'none',
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="meeting-doc-loading" style={{ minHeight: '300px' }}>
+                        <AlertCircle size={28} color="#f87171" />
+                        <span style={{ color: '#f87171', fontWeight: 600 }}>Unable to load document preview</span>
+                        <button
+                          type="button"
+                          className="meeting-doc-generate-btn"
+                          style={{ marginTop: '0.5rem', padding: '0.35rem 0.75rem', fontSize: '0.75rem' }}
+                          onClick={() => {
+                            const docId = selectedDoc.patient_document_id || selectedDoc.id;
+                            const targetMeetingId = meeting?.id || meetingId;
+                            setDocBlobLoading(true);
+                            meetingApi
+                              .getMeetingPatientDocumentBlobUrl(targetMeetingId, docId)
+                              .then((url) => setDocBlobUrl(url))
+                              .catch(() => setToast({ type: 'error', message: 'Failed to reload preview.' }))
+                              .finally(() => setDocBlobLoading(false));
+                          }}
+                        >
+                          <RefreshCw size={13} /> Try Reloading
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bottom Floating Control Bar */}
@@ -955,6 +1650,18 @@ export function MeetingRoomPage() {
           }}
         >
           {isVideoMuted ? <VideoOff size={22} /> : <Video size={22} />}
+        </button>
+
+        {/* Documents Toggle */}
+        <button
+          className={`meeting-doc-toggle-btn ${showDocPanel ? 'panel-open' : 'panel-closed'}`}
+          onClick={() => setShowDocPanel((v) => !v)}
+          title={showDocPanel ? 'Close Documents Panel' : 'Open Documents Panel'}
+        >
+          <FileText size={22} />
+          {meetingDocs.length > 0 && (
+            <span className="doc-count-badge">{meetingDocs.length}</span>
+          )}
         </button>
 
         {/* Leave Call Button */}

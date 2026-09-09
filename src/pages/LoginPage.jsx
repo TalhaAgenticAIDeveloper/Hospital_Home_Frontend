@@ -47,12 +47,12 @@ export function LoginPage() {
 
   return (
     <div className="container page-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="card animate-slide-up" style={{ width: '100%', maxWidth: '440px', padding: '2.5rem 2rem' }}>
+      <div className="card auth-card animate-slide-up" style={{ width: '100%', maxWidth: '440px', padding: '2.75rem 2.25rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
           <div style={{ display: 'inline-flex', padding: '0.75rem', background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '50%', marginBottom: '0.75rem' }}>
             <Activity size={28} />
           </div>
-          <h2>Welcome Back</h2>
+          <h2 className="auth-heading">Welcome Back</h2>
           <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
             Sign in to access your Patient or Doctor portal
           </p>

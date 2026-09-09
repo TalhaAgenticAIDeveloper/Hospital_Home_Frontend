@@ -5,15 +5,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  /* Brand Palette — Medical Teal & Cyan */
-  --primary: #0d9488;
-  --primary-hover: #0f766e;
-  --primary-light: #ccfbf1;
-  --primary-glow: rgba(13, 148, 136, 0.25);
+  /* Brand Palette — Modern SaaS Royal Blue & Sky */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-dark: #1e40af;
+  --primary-light: #eff6ff;
+  --primary-border: #bfdbfe;
+  --primary-glow: rgba(37, 99, 235, 0.22);
 
   --accent: #0284c7;
   --accent-hover: #0369a1;
-  --accent-light: #e0f2fe;
+  --accent-light: #f0f9ff;
 
   /* Neutrals & Surfaces */
   --bg-main: #f8fafc;
@@ -28,7 +30,7 @@
   --text-white: #ffffff;
 
   --border-color: #e2e8f0;
-  --border-focus: #0d9488;
+  --border-focus: #3b82f6;
 
   /* Status Colors */
   --status-active: #10b981;
@@ -47,12 +49,12 @@
   --status-suspended-bg: #f3f4f6;
   --status-suspended-text: #374151;
 
-  /* Shadows & Glassmorphism */
+  /* Shadows & Depth */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 20px rgba(13, 148, 136, 0.15);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+  --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.15);
 
   --glass-bg: rgba(255, 255, 255, 0.85);
   --glass-border: rgba(255, 255, 255, 0.4);
@@ -63,8 +65,8 @@
   --radius-lg: 16px;
   --radius-full: 9999px;
 
-  --transition-fast: 150ms ease;
-  --transition-normal: 250ms ease;
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Reset & Defaults */
@@ -126,15 +128,99 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.25;
+  letter-spacing: -0.02em;
 }
 
-h1 { font-size: 2.25rem; }
-h2 { font-size: 1.75rem; }
-h3 { font-size: 1.35rem; }
-h4 { font-size: 1.15rem; }
+h1 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+h2 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+h3 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+h4 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
 
 p {
   color: var(--text-secondary);
+}
+
+/* ── Colorful Heading Utilities ─────────────────────────────────────────── */
+.heading-gradient {
+  background: linear-gradient(135deg, #2563eb 0%, #0284c7 50%, #6366f1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.heading-gradient-blue {
+  background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 50%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.heading-gradient-emerald {
+  background: linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.heading-gradient-purple {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.heading-gradient-dark {
+  background: linear-gradient(135deg, #0f172a 20%, #1e40af 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.eyebrow-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+  margin-bottom: 0.75rem;
+}
+
+.section-gradient-title {
+  font-size: clamp(1.6rem, 3.5vw, 2.25rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  background: linear-gradient(135deg, #0f172a 15%, #1e40af 70%, #2563eb 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.2;
 }
 
 /* Common Layout Components */
@@ -154,15 +240,113 @@ p {
 
 .card {
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1px solid rgba(226, 232, 240, 0.95);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px -2px rgba(15, 23, 42, 0.02);
   padding: 1.75rem;
-  transition: box-shadow var(--transition-normal), border-color var(--transition-normal);
+  transition: all var(--transition-normal);
+  position: relative;
 }
 
 .card:hover {
-  box-shadow: var(--shadow-md);
+  border-color: rgba(203, 213, 225, 0.95);
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.05), 0 10px 24px -4px rgba(37, 99, 235, 0.06);
+}
+
+/* ── Aesthetic Auth Card Boundary ───────────────────────────────────────── */
+.auth-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(191, 219, 254, 0.8) !important;
+  box-shadow:
+    0 0 0 1px rgba(37, 99, 235, 0.05),
+    0 4px 6px -1px rgba(15, 23, 42, 0.04),
+    0 20px 35px -5px rgba(37, 99, 235, 0.1),
+    0 30px 60px -15px rgba(2, 132, 199, 0.06) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.auth-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #2563eb 0%, #38bdf8 35%, #818cf8 70%, #6366f1 100%);
+  border-radius: 20px 20px 0 0;
+}
+
+.auth-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.auth-card:hover {
+  border-color: #93c5fd !important;
+  box-shadow:
+    0 0 0 1px rgba(37, 99, 235, 0.15),
+    0 8px 12px -2px rgba(15, 23, 42, 0.05),
+    0 25px 45px -5px rgba(37, 99, 235, 0.16),
+    0 35px 70px -15px rgba(2, 132, 199, 0.1) !important;
+  transform: translateY(-2px);
+}
+
+.auth-card-admin {
+  border-color: rgba(199, 210, 254, 0.8) !important;
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.08),
+    0 4px 6px -1px rgba(15, 23, 42, 0.04),
+    0 20px 35px -5px rgba(99, 102, 241, 0.12),
+    0 30px 60px -15px rgba(139, 92, 246, 0.08) !important;
+}
+
+.auth-card-admin::before {
+  background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 35%, #a855f7 70%, #ec4899 100%);
+}
+
+.auth-card-admin:hover {
+  border-color: #c7d2fe !important;
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.18),
+    0 8px 12px -2px rgba(15, 23, 42, 0.05),
+    0 25px 45px -5px rgba(99, 102, 241, 0.18),
+    0 35px 70px -15px rgba(139, 92, 246, 0.12) !important;
+}
+
+.card-aesthetic {
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-aesthetic::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: transparent;
+  transition: background 0.25s ease;
+}
+
+.card-aesthetic:hover {
+  border-color: #bfdbfe;
+  box-shadow: 0 12px 28px -4px rgba(37, 99, 235, 0.1);
+  transform: translateY(-3px);
+}
+
+.card-aesthetic:hover::before {
+  background: linear-gradient(90deg, #2563eb, #38bdf8);
 }
 
 .card-glass {
@@ -183,8 +367,8 @@ p {
 }
 
 @keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 0 15px rgba(13, 148, 136, 0.2); }
-  50% { box-shadow: 0 0 25px rgba(13, 148, 136, 0.4); }
+  0%, 100% { box-shadow: 0 0 15px rgba(37, 99, 235, 0.2); }
+  50% { box-shadow: 0 0 25px rgba(37, 99, 235, 0.4); }
 }
 
 .animate-fade-in {
@@ -234,6 +418,6 @@ p {
 
 .badge-role {
   background: var(--primary-light);
-  color: var(--primary-hover);
-  border: 1px solid rgba(13, 148, 136, 0.2);
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
 }

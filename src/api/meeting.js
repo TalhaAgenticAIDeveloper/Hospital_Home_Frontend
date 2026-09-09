@@ -182,7 +182,7 @@ export const meetingApi = {
   /**
    * Request Groq LLM clinical summarization of an attached patient document.
    */
-  summarizeMeetingPatientDocument: (meetingId, documentId, forceRefresh = false) =>
+  summarizeMeetingPatientDocument: (meetingId, documentId, forceRefresh = true) =>
     apiFetch(`/api/v1/meetings/${meetingId}/patient-documents/${documentId}/summarize?force_refresh=${forceRefresh}`, {
       method: 'POST',
     }),

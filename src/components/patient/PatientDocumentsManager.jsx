@@ -263,7 +263,7 @@ export function PatientDocumentsManager() {
       {/* Upload Section */}
       {canUpload && (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
-          <h4 style={{ fontSize: '1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <h4 style={{ fontSize: '1.05rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 800 }} className="heading-gradient-dark">
             <Upload size={18} color="var(--primary)" />
             Upload New Document
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400 }}>
@@ -391,7 +391,7 @@ export function PatientDocumentsManager() {
 
       {/* Documents List */}
       <div className="card">
-        <h4 style={{ fontSize: '1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <h4 style={{ fontSize: '1.05rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 800 }} className="heading-gradient-dark">
           <FileText size={18} color="var(--primary)" />
           Your Uploaded Documents
         </h4>
@@ -463,86 +463,37 @@ export function PatientDocumentsManager() {
                 </div>
 
                 {/* Actions */}
-                <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
                   <button
                     type="button"
                     onClick={() => handleViewDoc(doc)}
+                    className="btn-action-view"
                     title="View document in browser"
                     aria-label={`View ${doc.label || doc.original_filename}`}
-                    style={{
-                      padding: '0.4rem 0.65rem',
-                      background: '#e0e7ff',
-                      color: '#4338ca',
-                      border: '1px solid #c7d2fe',
-                      borderRadius: 'var(--radius-sm)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.25rem',
-                      fontSize: '0.78rem',
-                      fontWeight: 600,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#c7d2fe';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '#e0e7ff';
-                    }}
                   >
-                    <Eye size={15} />
+                    <Eye size={14} />
                     <span>View</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleDownload(doc)}
+                    className="btn-action-download"
                     title="Download document"
                     aria-label={`Download ${doc.label || doc.original_filename}`}
-                    style={{
-                      padding: '0.4rem',
-                      background: '#dbeafe',
-                      color: '#2563eb',
-                      border: '1px solid #93c5fd',
-                      borderRadius: 'var(--radius-sm)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#bfdbfe';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '#dbeafe';
-                    }}
                   >
-                    <Download size={16} />
+                    <Download size={14} />
+                    <span>Download</span>
                   </button>
+
                   <button
                     type="button"
                     onClick={() => setDeleteConfirmId(doc.id)}
+                    className="btn-action-delete"
                     title="Delete document"
                     aria-label={`Delete ${doc.label || doc.original_filename}`}
-                    style={{
-                      padding: '0.4rem',
-                      background: '#fee2e2',
-                      color: '#dc2626',
-                      border: '1px solid #fecaca',
-                      borderRadius: 'var(--radius-sm)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#fecaca';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '#fee2e2';
-                    }}
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>

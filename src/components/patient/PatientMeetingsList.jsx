@@ -20,10 +20,15 @@ export function PatientMeetingsList({ refreshTrigger }) {
   const navigate = useNavigate();
   const [meetings, setMeetings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState(Date.now());
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
     loadMeetings();
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 10000);
+    return () => clearInterval(timer);
   }, [refreshTrigger]);
 
   const loadMeetings = async () => {
@@ -38,8 +43,19 @@ export function PatientMeetingsList({ refreshTrigger }) {
     }
   };
 
-  const upcomingMeetings = meetings.filter((m) => m.status === 'scheduled' || m.status === 'in_progress');
-  const pastMeetings = meetings.filter((m) => m.status === 'completed' || m.status === 'cancelled');
+  // Upcoming consultations: only active/scheduled appointments whose scheduled end time is in the future
+  const upcomingMeetings = meetings.filter((m) => {
+    const endMs = new Date(m.end_time).getTime();
+    const isActive = m.status === 'scheduled' || m.status === 'in_progress';
+    return isActive && endMs > currentTime;
+  });
+
+  // Past consultations: completed, cancelled, or appointments whose time has already passed
+  const pastMeetings = meetings.filter((m) => {
+    const endMs = new Date(m.end_time).getTime();
+    const isFinished = m.status === 'completed' || m.status === 'cancelled';
+    return isFinished || endMs <= currentTime;
+  });
 
   return (
     <div className="patient-meetings-list">
@@ -50,7 +66,9 @@ export function PatientMeetingsList({ refreshTrigger }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <Video size={22} color="var(--primary)" />
-            <h3 style={{ fontSize: '1.25rem', margin: 0 }}>My Scheduled Consultations</h3>
+            <h3 style={{ fontSize: '1.25rem', margin: 0, fontWeight: 800 }} className="heading-gradient-dark">
+              My Scheduled Consultations
+            </h3>
           </div>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             Upcoming: <strong>{upcomingMeetings.length}</strong>
@@ -183,7 +201,9 @@ export function PatientMeetingsList({ refreshTrigger }) {
       {/* Past Completed Consultations */}
       {pastMeetings.length > 0 && (
         <div className="card">
-          <h3 style={{ fontSize: '1.15rem', marginBottom: '1rem' }}>Past Consultations</h3>
+          <h3 style={{ fontSize: '1.15rem', marginBottom: '1rem', fontWeight: 800 }} className="heading-gradient-dark">
+            Past Consultations
+          </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {pastMeetings.map((m) => (
               <div
@@ -209,14 +229,15 @@ export function PatientMeetingsList({ refreshTrigger }) {
                 <span
                   style={{
                     fontSize: '0.75rem',
-                    padding: '0.2rem 0.5rem',
+                    padding: '0.2rem 0.6rem',
                     borderRadius: 'var(--radius-full)',
-                    background: m.status === 'completed' ? '#dcfce7' : '#fee2e2',
-                    color: m.status === 'completed' ? '#166534' : '#991b1b',
+                    background: m.status === 'completed' ? '#dcfce7' : m.status === 'cancelled' ? '#fee2e2' : '#f1f5f9',
+                    color: m.status === 'completed' ? '#166534' : m.status === 'cancelled' ? '#991b1b' : '#475569',
                     fontWeight: 600,
+                    textTransform: 'capitalize',
                   }}
                 >
-                  {m.status}
+                  {m.status === 'scheduled' ? 'Time Concluded' : m.status}
                 </span>
               </div>
             ))}

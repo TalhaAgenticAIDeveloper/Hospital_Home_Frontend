@@ -21,6 +21,8 @@ import {
   ChevronUp,
   Eye,
   Sparkles,
+  AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
 import { DocumentViewerModal } from '../common/DocumentViewerModal';
 import { DocumentSummaryModal } from './DocumentSummaryModal';
@@ -51,8 +53,22 @@ export function DoctorMeetingsList() {
   const [summaryError, setSummaryError] = useState(null);
   const [summaryMeetingId, setSummaryMeetingId] = useState(null);
 
+  // Bulk (all-docs) summarization
+  const [bulkSummaryOpen, setBulkSummaryOpen] = useState(false);
+  const [bulkSummaryMeetingId, setBulkSummaryMeetingId] = useState(null);
+  const [bulkSummaryResults, setBulkSummaryResults] = useState([]); // [{doc, summary, status, error}]
+  const [bulkSummaryLoading, setBulkSummaryLoading] = useState(false);
+  const [bulkSummaryProgress, setBulkSummaryProgress] = useState({ current: 0, total: 0, currentFile: '' });
+
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
   useEffect(() => {
     loadMeetings();
+    // Periodically update current time and refresh appointments
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 10000);
+    return () => clearInterval(timer);
   }, []);
 
   const loadMeetings = async () => {
@@ -172,8 +188,77 @@ export function DoctorMeetingsList() {
     }
   };
 
-  const upcomingMeetings = meetings.filter((m) => m.status === 'scheduled' || m.status === 'in_progress');
-  const pastMeetings = meetings.filter((m) => m.status === 'completed' || m.status === 'cancelled');
+  // ── Bulk Summarize All Documents ──────────────────────────────────────
+  const handleSummarizeAllDocs = async (meetingId) => {
+    const docs = meetingDocs[meetingId];
+    if (!docs || docs.length === 0) return;
+
+    setBulkSummaryMeetingId(meetingId);
+    setBulkSummaryOpen(true);
+    setBulkSummaryLoading(true);
+    setBulkSummaryResults([]);
+    setBulkSummaryProgress({ current: 0, total: docs.length, currentFile: '' });
+
+    const results = [];
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      const fileName = doc.label || doc.original_filename;
+      setBulkSummaryProgress({ current: i + 1, total: docs.length, currentFile: fileName });
+
+      // Generate summary fresh via Groq AI
+      try {
+        const data = await meetingApi.summarizeMeetingPatientDocument(
+          meetingId,
+          doc.patient_document_id || doc.id,
+          true
+        );
+        results.push({
+          doc,
+          summary: data.summary,
+          status: data.status,
+          error: null,
+          is_cached: false,
+        });
+        // Update local doc cache
+        setMeetingDocs((prev) => {
+          const mDocs = prev[meetingId] || [];
+          return {
+            ...prev,
+            [meetingId]: mDocs.map((d) =>
+              (d.patient_document_id === (doc.patient_document_id || doc.id) || d.id === doc.id)
+                ? { ...d, ai_summary: data.summary, ai_summary_status: data.status }
+                : d
+            ),
+          };
+        });
+      } catch (err) {
+        results.push({
+          doc,
+          summary: null,
+          status: 'failed',
+          error: err.message || 'Failed to summarize',
+          is_cached: false,
+        });
+      }
+      setBulkSummaryResults([...results]);
+    }
+
+    setBulkSummaryLoading(false);
+  };
+
+  // Upcoming consultations: only active/scheduled meetings whose scheduled end time has not passed
+  const upcomingMeetings = meetings.filter((m) => {
+    const endMs = new Date(m.end_time).getTime();
+    const isActive = m.status === 'scheduled' || m.status === 'in_progress';
+    return isActive && endMs > currentTime;
+  });
+
+  // Past consultations: completed, cancelled, or meetings whose scheduled end time has passed
+  const pastMeetings = meetings.filter((m) => {
+    const endMs = new Date(m.end_time).getTime();
+    const isFinished = m.status === 'completed' || m.status === 'cancelled';
+    return isFinished || endMs <= currentTime;
+  });
 
   return (
     <div className="doctor-meetings-list">
@@ -327,8 +412,54 @@ export function DoctorMeetingsList() {
                           </div>
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.15rem' }}>
-                              Shared Medical Documents ({meetingDocs[m.id].length})
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.15rem' }}>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                Shared Medical Documents ({meetingDocs[m.id].length})
+                              </div>
+                              {/* Summarize All Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleSummarizeAllDocs(m.id)}
+                                disabled={bulkSummaryLoading && bulkSummaryMeetingId === m.id}
+                                style={{
+                                  padding: '0.35rem 0.75rem',
+                                  background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: 'var(--radius-sm)',
+                                  cursor: bulkSummaryLoading && bulkSummaryMeetingId === m.id ? 'not-allowed' : 'pointer',
+                                  opacity: bulkSummaryLoading && bulkSummaryMeetingId === m.id ? 0.8 : 1,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  transition: 'all 0.15s ease',
+                                  boxShadow: '0 2px 6px rgba(79, 70, 229, 0.3)',
+                                }}
+                              >
+                                {bulkSummaryLoading && bulkSummaryMeetingId === m.id ? (
+                                  <>
+                                    <span
+                                      style={{
+                                        width: '12px',
+                                        height: '12px',
+                                        border: '2px solid rgba(255,255,255,0.3)',
+                                        borderTopColor: '#ffffff',
+                                        borderRadius: '50%',
+                                        display: 'inline-block',
+                                        animation: 'spin 0.6s linear infinite',
+                                      }}
+                                    />
+                                    <span>Analyzing ({bulkSummaryProgress.current}/{bulkSummaryProgress.total})...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Sparkles size={13} />
+                                    <span>Summarize All Documents</span>
+                                  </>
+                                )}
+                              </button>
                             </div>
                             {meetingDocs[m.id].map((doc) => (
                               <div
@@ -379,77 +510,27 @@ export function DoctorMeetingsList() {
                                     )}
                                   </div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
                                   <button
                                     type="button"
                                     onClick={() => handleViewPatientDoc(m.id, doc)}
+                                    className="btn-action-view"
                                     title={`View ${doc.label || doc.original_filename} in browser`}
                                     aria-label={`View ${doc.label || doc.original_filename}`}
-                                    style={{
-                                      padding: '0.3rem 0.55rem',
-                                      background: '#e0e7ff',
-                                      color: '#4338ca',
-                                      border: '1px solid #c7d2fe',
-                                      borderRadius: 'var(--radius-sm)',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                      fontSize: '0.72rem',
-                                      fontWeight: 600,
-                                      transition: 'all 0.15s ease',
-                                    }}
                                   >
                                     <Eye size={13} />
-                                    View
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSummarizePatientDoc(m.id, doc)}
-                                    title={`Summarize ${doc.label || doc.original_filename} with AI`}
-                                    aria-label={`Summarize ${doc.label || doc.original_filename} with AI`}
-                                    style={{
-                                      padding: '0.3rem 0.55rem',
-                                      background: 'linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%)',
-                                      color: '#4f46e5',
-                                      border: '1px solid #c7d2fe',
-                                      borderRadius: 'var(--radius-sm)',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                      fontSize: '0.72rem',
-                                      fontWeight: 700,
-                                      transition: 'all 0.15s ease',
-                                    }}
-                                  >
-                                    <Sparkles size={13} />
-                                    AI Summary
+                                    <span>View</span>
                                   </button>
 
                                   <button
                                     type="button"
                                     onClick={() => handleDownloadPatientDoc(m.id, doc)}
+                                    className="btn-action-download"
                                     title={`Download ${doc.label || doc.original_filename}`}
                                     aria-label={`Download ${doc.label || doc.original_filename}`}
-                                    style={{
-                                      padding: '0.3rem 0.55rem',
-                                      background: '#dbeafe',
-                                      color: '#2563eb',
-                                      border: '1px solid #93c5fd',
-                                      borderRadius: 'var(--radius-sm)',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                      fontSize: '0.72rem',
-                                      fontWeight: 600,
-                                      transition: 'all 0.15s ease',
-                                    }}
                                   >
                                     <Download size={13} />
-                                    Download
+                                    <span>Download</span>
                                   </button>
                                 </div>
                               </div>
@@ -526,14 +607,15 @@ export function DoctorMeetingsList() {
                         <span
                           style={{
                             fontSize: '0.75rem',
-                            padding: '0.2rem 0.5rem',
+                            padding: '0.2rem 0.6rem',
                             borderRadius: 'var(--radius-full)',
-                            background: m.status === 'completed' ? '#dcfce7' : '#fee2e2',
-                            color: m.status === 'completed' ? '#166534' : '#991b1b',
+                            background: m.status === 'completed' ? '#dcfce7' : m.status === 'cancelled' ? '#fee2e2' : '#f1f5f9',
+                            color: m.status === 'completed' ? '#166534' : m.status === 'cancelled' ? '#991b1b' : '#475569',
                             fontWeight: 600,
+                            textTransform: 'capitalize',
                           }}
                         >
-                          {m.status}
+                          {m.status === 'scheduled' ? 'Time Concluded' : m.status}
                         </span>
                       </td>
                     </tr>
@@ -560,7 +642,7 @@ export function DoctorMeetingsList() {
         }
       />
 
-      {/* ── Document AI Summary Modal ───────────────────────────────────── */}
+      {/* ── Document AI Summary Modal (single doc) ────────────────────── */}
       <DocumentSummaryModal
         isOpen={Boolean(summaryDoc)}
         onClose={() => {
@@ -593,6 +675,190 @@ export function DoctorMeetingsList() {
             : undefined
         }
       />
+
+      {/* ── Bulk Summary Modal (all docs combined) ───────────────────────── */}
+      {bulkSummaryOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9998,
+            padding: '1.25rem',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget && !bulkSummaryLoading) { setBulkSummaryOpen(false); } }}
+        >
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '12px',
+              width: '92vw',
+              maxWidth: '800px',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+              overflow: 'hidden',
+              animation: 'fadeIn 0.15s ease-out',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              style={{
+                padding: '1.25rem 1.5rem',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div
+                  style={{
+                    padding: '0.6rem',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 6px -1px rgba(79, 70, 229, 0.3)',
+                  }}
+                >
+                  <Sparkles size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: '#0f172a' }}>
+                    Combined AI Clinical Summary
+                  </h3>
+                  <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '2px' }}>
+                    {bulkSummaryProgress.total} document{bulkSummaryProgress.total !== 1 ? 's' : ''} attached to this consultation
+                  </div>
+                </div>
+              </div>
+              {!bulkSummaryLoading && (
+                <button
+                  type="button"
+                  onClick={() => setBulkSummaryOpen(false)}
+                  style={{ padding: '0.4rem', background: '#f1f5f9', border: 'none', borderRadius: '6px', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+
+            {/* Progress Bar (while loading) */}
+            {bulkSummaryLoading && (
+              <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
+                    Analyzing: {bulkSummaryProgress.currentFile}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                    {bulkSummaryProgress.current} / {bulkSummaryProgress.total}
+                  </div>
+                </div>
+                <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: `${(bulkSummaryProgress.current / bulkSummaryProgress.total) * 100}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #4f46e5, #6366f1)',
+                      borderRadius: '3px',
+                      transition: 'width 0.4s ease',
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Body — Combined Summaries */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, lineHeight: 1.6, color: '#1e293b' }}>
+              {bulkSummaryResults.length === 0 && bulkSummaryLoading && (
+                <div style={{ textAlign: 'center', padding: '2rem' }}>
+                  <Loader text="Starting AI analysis of all documents..." />
+                </div>
+              )}
+
+              {bulkSummaryResults.map((result, idx) => (
+                <div
+                  key={result.doc.id}
+                  style={{
+                    marginBottom: idx < bulkSummaryResults.length - 1 ? '1.5rem' : 0,
+                    padding: '1.25rem',
+                    background: result.error ? '#fef2f2' : '#f8fafc',
+                    border: `1px solid ${result.error ? '#fecaca' : '#e2e8f0'}`,
+                    borderRadius: '10px',
+                  }}
+                >
+                  {/* Document Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                    <FileText size={16} color={result.doc.mime_type === 'application/pdf' ? '#d97706' : '#2563eb'} />
+                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0f172a' }}>
+                      {result.doc.label || result.doc.original_filename}
+                    </span>
+                    {result.doc.label && (
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>({result.doc.original_filename})</span>
+                    )}
+                    {result.is_cached && (
+                      <span style={{ fontSize: '0.65rem', fontWeight: 600, padding: '0.1rem 0.4rem', borderRadius: '999px', background: '#e0e7ff', color: '#4338ca' }}>
+                        Cached
+                      </span>
+                    )}
+                    {result.status === 'unclear' && (
+                      <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '999px', background: '#fef3c7', color: '#b45309', display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
+                        <AlertTriangle size={10} /> Unclear
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Summary Content or Error */}
+                  {result.error ? (
+                    <div style={{ color: '#b91c1c', fontSize: '0.85rem' }}>
+                      <AlertTriangle size={14} style={{ marginRight: '0.3rem', verticalAlign: 'middle' }} />
+                      Failed to summarize: {result.error}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.88rem', whiteSpace: 'pre-line', color: '#334155' }}>
+                      {result.summary}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                padding: '1rem 1.5rem',
+                borderTop: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#ffffff',
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <ShieldCheck size={14} color="#059669" />
+                AI Clinical Assistant — Always verify with original documents
+              </div>
+              <Button variant="primary" onClick={() => setBulkSummaryOpen(false)} disabled={bulkSummaryLoading} style={{ fontSize: '0.85rem' }}>
+                {bulkSummaryLoading ? 'Processing...' : 'Close'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

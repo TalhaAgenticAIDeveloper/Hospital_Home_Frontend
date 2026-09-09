@@ -294,25 +294,42 @@ export function DoctorDirectory({ onMeetingBooked }) {
                                 display: 'flex',
                                 flexDirection: 'column',
                                 alignItems: 'flex-start',
-                                padding: '0.75rem',
-                                borderRadius: 'var(--radius-md)',
-                                border: '1px solid #93c5fd',
-                                background: '#eff6ff',
+                                padding: '0.85rem 1rem',
+                                borderRadius: '10px',
+                                border: '1.5px solid #e2e8f0',
+                                background: '#ffffff',
                                 cursor: 'pointer',
                                 textAlign: 'left',
-                                transition: 'all 0.15s ease',
+                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+                                position: 'relative',
                               }}
-                              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--primary)')}
-                              onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#93c5fd')}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = '#2563eb';
+                                e.currentTarget.style.background = '#f8fafc';
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 6px 16px rgba(37, 99, 235, 0.12)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = '#e2e8f0';
+                                e.currentTarget.style.background = '#ffffff';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.04)';
+                              }}
                             >
-                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary)' }}>
-                                {sDt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                  {sDt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                                </div>
+                                <span style={{ fontSize: '0.68rem', padding: '0.15rem 0.45rem', borderRadius: '4px', background: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }}>
+                                  Available
+                                </span>
                               </div>
-                              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                              <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
                                 {sDt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {eDt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </div>
-                              <div style={{ fontSize: '0.7rem', color: '#2563eb', fontWeight: 600, marginTop: '4px' }}>
-                                Click to Book
+                              <div style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                <span>Book Visit</span> →
                               </div>
                             </button>
                           );
@@ -345,8 +362,8 @@ export function DoctorDirectory({ onMeetingBooked }) {
           }}
         >
           <div className="card" style={{ width: '100%', maxWidth: '560px', padding: '1.75rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <HeartPulse size={22} color="var(--primary)" />
+            <h3 style={{ fontSize: '1.3rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 800 }} className="heading-gradient-dark">
+              <HeartPulse size={24} color="var(--primary)" />
               Confirm Video Consultation
             </h3>
 
