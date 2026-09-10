@@ -38,12 +38,12 @@ export function AdminLoginPage() {
 
   return (
     <div className="container page-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="card animate-slide-up" style={{ width: '100%', maxWidth: '440px', padding: '2.5rem 2rem', borderTop: '4px solid var(--accent)' }}>
+      <div className="card auth-card auth-card-admin animate-slide-up" style={{ width: '100%', maxWidth: '440px', padding: '2.75rem 2.25rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
           <div style={{ display: 'inline-flex', padding: '0.75rem', background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: '50%', marginBottom: '0.75rem' }}>
             <ShieldCheck size={32} />
           </div>
-          <h2>SaaS Admin Portal</h2>
+          <h2 className="auth-heading">SaaS Admin Portal</h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
             Restricted access for platform administrators and doctor credential review officers.
           </p>

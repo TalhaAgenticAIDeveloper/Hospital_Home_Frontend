@@ -1,7 +1,7 @@
 import React from 'react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
-import { AlertTriangle, Trash2, X, ShieldAlert } from 'lucide-react';
+import { Trash2, ShieldAlert } from 'lucide-react';
 
 export function DeleteConfirmationModal({
   isOpen,

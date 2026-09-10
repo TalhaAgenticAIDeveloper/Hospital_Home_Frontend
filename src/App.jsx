@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { Navbar } from './components/common/Navbar';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
@@ -12,72 +12,104 @@ import { DoctorPortalPage } from './pages/DoctorPortalPage';
 import { PatientDashboardPage } from './pages/PatientDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { DoctorReviewPage } from './pages/DoctorReviewPage';
+import { MeetingRoomPage } from './pages/MeetingRoomPage';
 
 import './App.css';
+
+function AppContent() {
+  const location = useLocation();
+
+  // Dashboard & meeting rooms provide their own dedicated layout shell (sidebar/topbar/full-screen)
+  const isDashboardOrMeeting =
+    location.pathname.startsWith('/patient') ||
+    location.pathname.startsWith('/doctor') ||
+    location.pathname.startsWith('/admin/dashboard') ||
+    location.pathname.startsWith('/admin/doctors') ||
+    location.pathname.startsWith('/meetings');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {!isDashboardOrMeeting && <Navbar />}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/" element={<HomePage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/admin/login" element={<AdminLoginPage />} />
+
+          {/* Protected Patient Routes */}
+          <Route path="/patient/dashboard" element={<Navigate to="/patient/dashboard/book" replace />} />
+          <Route
+            path="/patient/dashboard/:section"
+            element={
+              <ProtectedRoute allowedRoles={['patient']}>
+                <PatientDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Protected Doctor Onboarding / Verification Routes */}
+          <Route path="/doctor/portal" element={<Navigate to="/doctor/portal/consultations" replace />} />
+          <Route
+            path="/doctor/portal/:section"
+            element={
+              <ProtectedRoute allowedRoles={['doctor']}>
+                <DoctorPortalPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Protected Telemedicine 1-to-1 Video Consultation Room */}
+          <Route
+            path="/meetings/:meetingId"
+            element={
+              <ProtectedRoute allowedRoles={['doctor', 'patient', 'saas_admin']}>
+                <MeetingRoomPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Protected SaaS Admin Routes */}
+          <Route path="/admin/dashboard" element={<Navigate to="/admin/dashboard/pending" replace />} />
+          <Route
+            path="/admin/dashboard/:section"
+            element={
+              <ProtectedRoute allowedRoles={['saas_admin']}>
+                <AdminDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/doctors/:doctorUserId"
+            element={
+              <ProtectedRoute allowedRoles={['saas_admin']}>
+                <DoctorReviewPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+
+      {!isDashboardOrMeeting && (
+        <footer style={{ background: '#ffffff', borderTop: '1px solid var(--border-color)', padding: '1.5rem 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+          <div className="container">
+            © {new Date().getFullYear()} MedTrust SaaS Platform. All medical credentials encrypted and verified.
+          </div>
+        </footer>
+      )}
+    </div>
+  );
+}
 
 export function App() {
   return (
     <Router>
       <AuthProvider>
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-          <Navbar />
-          <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<HomePage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
-              <Route path="/admin/login" element={<AdminLoginPage />} />
-
-              {/* Protected Patient Route */}
-              <Route
-                path="/patient/dashboard"
-                element={
-                  <ProtectedRoute allowedRoles={['patient']}>
-                    <PatientDashboardPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Protected Doctor Onboarding / Verification Route */}
-              <Route
-                path="/doctor/portal"
-                element={
-                  <ProtectedRoute allowedRoles={['doctor']}>
-                    <DoctorPortalPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Protected SaaS Admin Routes */}
-              <Route
-                path="/admin/dashboard"
-                element={
-                  <ProtectedRoute allowedRoles={['saas_admin']}>
-                    <AdminDashboardPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/admin/doctors/:doctorUserId"
-                element={
-                  <ProtectedRoute allowedRoles={['saas_admin']}>
-                    <DoctorReviewPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Fallback */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
-
-          <footer style={{ background: '#ffffff', borderTop: '1px solid var(--border-color)', padding: '1.5rem 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            <div className="container">
-              © {new Date().getFullYear()} MedTrust SaaS Platform. All medical credentials encrypted and verified.
-            </div>
-          </footer>
-        </div>
+        <AppContent />
       </AuthProvider>
     </Router>
   );

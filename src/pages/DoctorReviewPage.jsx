@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { adminApi } from '../api/admin';
+import { DashboardLayout } from '../components/dashboard/DashboardLayout';
 import { RejectConfirmationModal } from '../components/admin/RejectConfirmationModal';
 import { DeleteConfirmationModal } from '../components/admin/DeleteConfirmationModal';
 import { Button } from '../components/common/Button';
@@ -41,6 +42,18 @@ export function DoctorReviewPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState(null);
 
+  const loadDoctorDetail = async () => {
+    setIsLoading(true);
+    try {
+      const data = await adminApi.getDoctorDetail(doctorUserId);
+      setDoctorDetail(data);
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to load doctor details.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (doctorUserId) {
       loadDoctorDetail();
@@ -58,18 +71,6 @@ export function DoctorReviewPage() {
       setToast({ type: 'error', message: err.message || 'Failed to delete doctor account.' });
     } finally {
       setIsDeleting(false);
-    }
-  };
-
-  const loadDoctorDetail = async () => {
-    setIsLoading(true);
-    try {
-      const data = await adminApi.getDoctorDetail(doctorUserId);
-      setDoctorDetail(data);
-    } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to load doctor details.' });
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -154,21 +155,34 @@ export function DoctorReviewPage() {
   const isDoctorActive = doctorDetail.status === 'active';
 
   return (
-    <div className="container page-wrapper">
-      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
-
-      {/* Back Button + Header */}
-      <div style={{ marginBottom: '1.75rem' }}>
+    <DashboardLayout
+      roleTitle="Admin Suite"
+      roleBadge="SaaS Administrator"
+      navItems={[
+        { key: 'back', label: 'Return to Queue', icon: ArrowLeft },
+        { key: 'review', label: 'Doctor Credentials Audit', icon: ShieldCheck },
+      ]}
+      activeKey="review"
+      onSelectNav={(key) => {
+        if (key === 'back') navigate('/admin/dashboard');
+      }}
+      pageTitle={isDoctorActive ? 'Doctor Profile & Documents' : `Audit: Dr. ${doctorDetail?.full_name || 'Doctor'}`}
+      pageSubtitle={`Provider ID: ${doctorUserId} • ${doctorDetail?.email}`}
+      headerActions={
         <Button
           variant="secondary"
           size="sm"
           onClick={() => navigate('/admin/dashboard')}
           icon={<ArrowLeft size={16} />}
-          style={{ marginBottom: '1rem' }}
         >
-          Back to Dashboard
+          Back to Queue
         </Button>
+      }
+    >
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
+      {/* Header */}
+      <div style={{ marginBottom: '1.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem' }}>
@@ -498,6 +512,6 @@ export function DoctorReviewPage() {
         doctorEmail={doctorDetail.email}
         isDeleting={isDeleting}
       />
-    </div>
+    </DashboardLayout>
   );
 }

@@ -5,18 +5,22 @@ import { Input } from '../components/common/Input';
 import { Button } from '../components/common/Button';
 import { Toast } from '../components/common/Toast';
 import { DoctorOnboardingModal } from '../components/doctor/DoctorOnboardingModal';
-import { Mail, Lock, UserPlus, Stethoscope, User, CheckCircle2, Circle } from 'lucide-react';
+import { PatientOnboardingModal } from '../components/patient/PatientOnboardingModal';
+import { Mail, Lock, UserPlus, Stethoscope, User, CheckCircle2, Circle, Eye, EyeOff } from 'lucide-react';
 
 export function SignupPage() {
   const [role, setRole] = useState('patient');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // Doctor onboarding modal state
+  // Onboarding modal states
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showPatientOnboarding, setShowPatientOnboarding] = useState(false);
 
   const { signup, login } = useAuth();
   const navigate = useNavigate();
@@ -27,7 +31,7 @@ export function SignupPage() {
     uppercase: /[A-Z]/.test(password),
     lowercase: /[a-z]/.test(password),
     number: /\d/.test(password),
-    special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(password),
+    special: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(password),
   };
 
   const isPasswordValid = Object.values(passwordChecks).every(Boolean);
@@ -62,7 +66,8 @@ export function SignupPage() {
         // For doctors: open the onboarding modal instead of navigating directly
         setShowOnboarding(true);
       } else {
-        navigate('/patient/dashboard');
+        // For patients: open the onboarding modal to capture basic details & optional records
+        setShowPatientOnboarding(true);
       }
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Registration failed.' });
@@ -82,11 +87,21 @@ export function SignupPage() {
     navigate('/doctor/portal');
   };
 
+  const handlePatientOnboardingCompleted = () => {
+    setShowPatientOnboarding(false);
+    navigate('/patient/dashboard');
+  };
+
+  const handlePatientOnboardingClose = () => {
+    setShowPatientOnboarding(false);
+    navigate('/patient/dashboard');
+  };
+
   return (
     <div className="container page-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="card animate-slide-up" style={{ width: '100%', maxWidth: '480px', padding: '2.5rem 2rem' }}>
+      <div className="card auth-card animate-slide-up" style={{ width: '100%', maxWidth: '480px', padding: '2.75rem 2.25rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-          <h2>Create Account</h2>
+          <h2 className="auth-heading">Create Account</h2>
           <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
             Register as a patient or apply as a medical provider
           </p>
@@ -154,17 +169,44 @@ export function SignupPage() {
             autoComplete="email"
           />
 
-          <Input
-            label="Password"
-            name="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Create strong password"
-            icon={<Lock size={16} />}
-            required
-            autoComplete="new-password"
-          />
+          <div style={{ position: 'relative' }}>
+            <Input
+              label="Password"
+              name="password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Create strong password"
+              icon={<Lock size={16} />}
+              required
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={{
+                position: 'absolute',
+                right: '0.85rem',
+                top: '2.2rem',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0.2rem',
+                borderRadius: '4px',
+                transition: 'color 0.15s ease',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              title={showPassword ? 'Hide password' : 'Show password'}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
 
           {/* Real-time Password Strength Checklist */}
           {password.length > 0 && (
@@ -182,17 +224,44 @@ export function SignupPage() {
             </div>
           )}
 
-          <Input
-            label="Confirm Password"
-            name="confirmPassword"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Confirm password"
-            icon={<Lock size={16} />}
-            required
-            autoComplete="new-password"
-          />
+          <div style={{ position: 'relative' }}>
+            <Input
+              label="Confirm Password"
+              name="confirmPassword"
+              type={showConfirmPassword ? 'text' : 'password'}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm password"
+              icon={<Lock size={16} />}
+              required
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              style={{
+                position: 'absolute',
+                right: '0.85rem',
+                top: '2.2rem',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0.2rem',
+                borderRadius: '4px',
+                transition: 'color 0.15s ease',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              title={showConfirmPassword ? 'Hide password' : 'Show password'}
+              aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+            >
+              {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
 
           <Button
             type="submit"
@@ -219,6 +288,13 @@ export function SignupPage() {
         isOpen={showOnboarding}
         onClose={handleOnboardingClose}
         onCompleted={handleOnboardingCompleted}
+      />
+
+      {/* Patient Onboarding Modal */}
+      <PatientOnboardingModal
+        isOpen={showPatientOnboarding}
+        onClose={handlePatientOnboardingClose}
+        onCompleted={handlePatientOnboardingCompleted}
       />
     </div>
   );

@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
-import { FileText, Eye, CheckCircle2, Trash2, Award, Mail, Calendar, Stethoscope } from 'lucide-react';
+import { FileText, Eye, CheckCircle2, Trash2, Mail, Stethoscope } from 'lucide-react';
 
 export function PendingDoctorsTable({
   doctors = [],
