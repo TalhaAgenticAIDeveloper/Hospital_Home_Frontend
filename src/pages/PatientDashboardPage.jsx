@@ -7,6 +7,7 @@ import { DoctorDirectory } from '../components/patient/DoctorDirectory';
 import { PatientMeetingsList } from '../components/patient/PatientMeetingsList';
 import { PatientDocumentsManager } from '../components/patient/PatientDocumentsManager';
 import { PatientProfileEditor } from '../components/patient/PatientProfileEditor';
+import { PatientPrescriptionsList } from '../components/patient/PatientPrescriptionsList';
 import {
   Video,
   Stethoscope,
@@ -15,9 +16,10 @@ import {
   UserCheck,
   AlertCircle,
   ArrowRight,
+  Pill,
 } from 'lucide-react';
 
-const VALID_TABS = ['book', 'appointments', 'documents', 'profile'];
+const VALID_TABS = ['book', 'appointments', 'prescriptions', 'documents', 'profile'];
 
 export function PatientDashboardPage() {
   const { user } = useAuth();
@@ -44,6 +46,7 @@ export function PatientDashboardPage() {
   const navItems = [
     { key: 'book', label: 'Find & Book Doctors', icon: Stethoscope },
     { key: 'appointments', label: 'My Consultations', icon: Video },
+    { key: 'prescriptions', label: 'My Prescriptions', icon: Pill },
     { key: 'documents', label: 'Medical Records', icon: FolderOpen },
     { key: 'profile', label: 'My Health Profile', icon: UserCheck },
   ];
@@ -52,6 +55,8 @@ export function PatientDashboardPage() {
     switch (activeTab) {
       case 'appointments':
         return { title: 'My Consultations' };
+      case 'prescriptions':
+        return { title: 'My Prescriptions' };
       case 'documents':
         return { title: 'Medical Records' };
       case 'profile':
@@ -132,6 +137,11 @@ export function PatientDashboardPage() {
       {/* ── Tab Content: Scheduled Consultations ── */}
       {activeTab === 'appointments' && (
         <PatientMeetingsList refreshTrigger={refreshTrigger} />
+      )}
+
+      {/* ── Tab Content: Prescriptions ── */}
+      {activeTab === 'prescriptions' && (
+        <PatientPrescriptionsList />
       )}
 
       {/* ── Tab Content: Medical Documents Manager ── */}

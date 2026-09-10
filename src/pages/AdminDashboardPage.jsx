@@ -56,7 +56,7 @@ export function AdminDashboardPage() {
       });
       setDoctors(data.items || []);
       setTotalCount(data.total || 0);
-      setStatusCounts(data.status_counts || { total: 0, pending: 0, active: 0, rejected: 0 });
+      setStatusCounts(data.status_counts || data.counts || { total: 0, pending: 0, active: 0, rejected: 0 });
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to load doctors.' });
     } finally {

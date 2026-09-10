@@ -31,7 +31,15 @@ import {
   Maximize2,
   Minimize2,
   List,
+  Star,
+  Pill,
 } from 'lucide-react';
+import { DoctorRatingModal } from '../components/patient/DoctorRatingModal';
+import { PrescriptionWriter } from '../components/doctor/PrescriptionWriter';
+import { PrescriptionView } from '../components/patient/PrescriptionView';
+import { ratingApi } from '../api/rating';
+import { prescriptionApi } from '../api/prescription';
+
 
 const ICE_SERVERS = {
   iceServers: [
@@ -67,6 +75,14 @@ export function MeetingRoomPage() {
   const [isEnding, setIsEnding] = useState(false);
   const [canRejoin, setCanRejoin] = useState(false);
   const [bothJoined, setBothJoined] = useState(false);
+
+  // ─── Post-Consultation (Rating & Prescription) States ──────────────────
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [hasRated, setHasRated] = useState(false);
+  const [userRating, setUserRating] = useState(null);
+  const [showPrescriptionWriter, setShowPrescriptionWriter] = useState(false);
+  const [showPrescriptionView, setShowPrescriptionView] = useState(false);
+  const [prescription, setPrescription] = useState(null);
 
   // ─── Document Panel States ────────────────────────────────────────────
   const [showDocPanel, setShowDocPanel] = useState(false);
@@ -136,6 +152,49 @@ export function MeetingRoomPage() {
       cleanupCall();
     };
   }, [meetingId]);
+
+  // ─── Post-Consultation (Rating & Prescription) Loader ──────────────────
+  useEffect(() => {
+    if (sessionState !== 'completed' || !meetingId) return;
+
+    let isMounted = true;
+    const loadPostConsultation = async () => {
+      // 1. Fetch prescription if any
+      try {
+        const rx = await prescriptionApi.getMeetingPrescription(meetingId);
+        if (isMounted && rx) {
+          setPrescription(rx);
+        }
+      } catch (err) {
+        // If doctor and no prescription yet, auto-open prescription writer
+        if (isMounted && user?.role === 'doctor') {
+          setShowPrescriptionWriter(true);
+        }
+      }
+
+      // 2. If patient, check if already rated
+      if (user?.role === 'patient') {
+        try {
+          const r = await ratingApi.getMeetingRating(meetingId);
+          if (isMounted && r) {
+            setHasRated(true);
+            setUserRating(r.rating);
+          }
+        } catch (err) {
+          // Not rated yet -> auto open rating modal
+          if (isMounted) {
+            setShowRatingModal(true);
+          }
+        }
+      }
+    };
+
+    loadPostConsultation();
+    return () => {
+      isMounted = false;
+    };
+  }, [sessionState, meetingId, user?.role]);
+
 
   // Attach local stream to <video> as soon as element and stream are both available
   useEffect(() => {
@@ -814,15 +873,112 @@ export function MeetingRoomPage() {
             </div>
           )}
 
+          {/* Post-Consultation Action Buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+            {user?.role === 'patient' && (
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                {prescription && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowPrescriptionView(true)}
+                    icon={<Pill size={16} color="#059669" />}
+                  >
+                    View Prescription ({prescription.medicines?.length || 0} Meds)
+                  </Button>
+                )}
+
+                {hasRated ? (
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      padding: '0.5rem 1rem',
+                      background: '#fef9c3',
+                      border: '1px solid #fde047',
+                      borderRadius: '8px',
+                      color: '#854d0e',
+                      fontSize: '0.875rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <Star size={16} fill="#eab308" color="#eab308" />
+                    <span>You Rated: {userRating}/5 Stars</span>
+                  </div>
+                ) : (
+                  <Button
+                    variant="primary"
+                    onClick={() => setShowRatingModal(true)}
+                    icon={<Star size={16} fill="#ffffff" />}
+                  >
+                    Rate Doctor (1–5 Stars)
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {user?.role === 'doctor' && (
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                {prescription ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowPrescriptionView(true)}
+                    icon={<Pill size={16} color="#059669" />}
+                  >
+                    View Issued Prescription ({prescription.medicines?.length || 0} Meds)
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    onClick={() => setShowPrescriptionWriter(true)}
+                    icon={<Pill size={16} />}
+                  >
+                    Write Prescription & Medicine Plan
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
             <Button
-              variant="primary"
+              variant="secondary"
               onClick={() => navigate(user?.role === 'doctor' ? '/doctor/portal' : '/patient/dashboard')}
             >
               Back to Dashboard
             </Button>
           </div>
         </div>
+
+        {/* Post-Consultation Modals */}
+        <DoctorRatingModal
+          isOpen={showRatingModal}
+          onClose={() => setShowRatingModal(false)}
+          meetingId={meetingId}
+          doctorName={meeting?.doctor_name}
+          onSuccess={(r) => {
+            setHasRated(true);
+            setUserRating(r.rating);
+            setToast({ type: 'success', message: 'Thank you for your rating and feedback!' });
+          }}
+        />
+
+        <PrescriptionWriter
+          isOpen={showPrescriptionWriter}
+          onClose={() => setShowPrescriptionWriter(false)}
+          meetingId={meetingId}
+          patientName={meeting?.patient_name}
+          onSuccess={(rx) => {
+            setPrescription(rx);
+            setToast({ type: 'success', message: 'Prescription issued! Automated reminders scheduled for patient.' });
+          }}
+        />
+
+        <PrescriptionView
+          isOpen={showPrescriptionView}
+          onClose={() => setShowPrescriptionView(false)}
+          prescription={prescription}
+        />
       </div>
     );
   }

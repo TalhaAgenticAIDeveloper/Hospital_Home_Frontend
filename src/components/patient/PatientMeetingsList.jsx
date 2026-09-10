@@ -14,7 +14,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Paperclip,
+  Star,
+  Pill,
 } from 'lucide-react';
+import { DoctorRatingModal } from './DoctorRatingModal';
+import { PrescriptionView } from './PrescriptionView';
+import { prescriptionApi } from '../../api/prescription';
+
 
 export function PatientMeetingsList({ refreshTrigger }) {
   const navigate = useNavigate();
@@ -22,6 +28,21 @@ export function PatientMeetingsList({ refreshTrigger }) {
   const [isLoading, setIsLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [toast, setToast] = useState(null);
+  const [ratingModalMeeting, setRatingModalMeeting] = useState(null);
+  const [selectedPrescription, setSelectedPrescription] = useState(null);
+  const [loadingRxId, setLoadingRxId] = useState(null);
+
+  const handleViewPrescription = async (m) => {
+    setLoadingRxId(m.id);
+    try {
+      const rx = await prescriptionApi.getMeetingPrescription(m.id);
+      setSelectedPrescription(rx);
+    } catch (err) {
+      setToast({ type: 'info', message: 'No prescription has been issued for this consultation yet.' });
+    } finally {
+      setLoadingRxId(null);
+    }
+  };
 
   useEffect(() => {
     loadMeetings();
@@ -226,23 +247,96 @@ export function PatientMeetingsList({ refreshTrigger }) {
                     {new Date(m.start_time).toLocaleDateString()} at {new Date(m.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
-                <span
-                  style={{
-                    fontSize: '0.75rem',
-                    padding: '0.2rem 0.6rem',
-                    borderRadius: 'var(--radius-full)',
-                    background: m.status === 'completed' ? '#dcfce7' : m.status === 'cancelled' ? '#fee2e2' : '#f1f5f9',
-                    color: m.status === 'completed' ? '#166534' : m.status === 'cancelled' ? '#991b1b' : '#475569',
-                    fontWeight: 600,
-                    textTransform: 'capitalize',
-                  }}
-                >
-                  {m.status === 'scheduled' ? 'Time Concluded' : m.status}
-                </span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  {m.status === 'completed' && (
+                    <>
+                      <button
+                        onClick={() => handleViewPrescription(m)}
+                        disabled={loadingRxId === m.id}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          padding: '0.35rem 0.65rem',
+                          borderRadius: '6px',
+                          border: '1px solid #a7f3d0',
+                          background: '#ecfdf5',
+                          color: '#047857',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                        title="View Doctor Prescription"
+                      >
+                        <Pill size={13} />
+                        <span>{loadingRxId === m.id ? 'Loading...' : 'Prescription'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => setRatingModalMeeting(m)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          padding: '0.35rem 0.65rem',
+                          borderRadius: '6px',
+                          border: '1px solid #fde047',
+                          background: '#fef9c3',
+                          color: '#854d0e',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                        title="Rate Doctor"
+                      >
+                        <Star size={13} fill="#eab308" color="#eab308" />
+                        <span>Rate</span>
+                      </button>
+                    </>
+                  )}
+
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      padding: '0.2rem 0.6rem',
+                      borderRadius: 'var(--radius-full)',
+                      background: m.status === 'completed' ? '#dcfce7' : m.status === 'cancelled' ? '#fee2e2' : '#f1f5f9',
+                      color: m.status === 'completed' ? '#166534' : m.status === 'cancelled' ? '#991b1b' : '#475569',
+                      fontWeight: 600,
+                      textTransform: 'capitalize',
+                    }}
+                  >
+                    {m.status === 'scheduled' ? 'Time Concluded' : m.status}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
         </div>
+      )}
+
+      {/* Rating Modal */}
+      {ratingModalMeeting && (
+        <DoctorRatingModal
+          isOpen={Boolean(ratingModalMeeting)}
+          onClose={() => setRatingModalMeeting(null)}
+          meetingId={ratingModalMeeting.id}
+          doctorName={ratingModalMeeting.doctor_name}
+          onSuccess={() => {
+            setToast({ type: 'success', message: 'Rating submitted successfully!' });
+            loadMeetings();
+          }}
+        />
+      )}
+
+      {/* Prescription View Modal */}
+      {selectedPrescription && (
+        <PrescriptionView
+          isOpen={Boolean(selectedPrescription)}
+          onClose={() => setSelectedPrescription(null)}
+          prescription={selectedPrescription}
+        />
       )}
     </div>
   );
