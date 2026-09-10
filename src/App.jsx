@@ -12,6 +12,7 @@ import { DoctorPortalPage } from './pages/DoctorPortalPage';
 import { PatientDashboardPage } from './pages/PatientDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { DoctorReviewPage } from './pages/DoctorReviewPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { MeetingRoomPage } from './pages/MeetingRoomPage';
 
 import './App.css';
@@ -37,6 +38,7 @@ function AppContent() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/admin/login" element={<AdminLoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
           {/* Protected Patient Routes */}
           <Route path="/patient/dashboard" element={<Navigate to="/patient/dashboard/book" replace />} />

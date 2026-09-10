@@ -103,6 +103,24 @@ export function LoginPage() {
             </button>
           </div>
 
+          {/* Forgot Password Link */}
+          <div style={{ textAlign: 'right', marginTop: '-0.5rem', marginBottom: '0.5rem' }}>
+            <Link
+              to="/forgot-password"
+              style={{
+                fontSize: '0.82rem',
+                color: 'var(--primary)',
+                fontWeight: 500,
+                textDecoration: 'none',
+                transition: 'opacity 0.15s ease',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.8')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+            >
+              Forgot Password?
+            </Link>
+          </div>
+
           <Button
             type="submit"
             variant="primary"

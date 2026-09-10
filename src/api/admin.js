@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE_URL, getStoredTokens } from './client';
+import { apiFetch } from './client';
 
 export const adminApi = {
   /**
@@ -14,7 +14,7 @@ export const adminApi = {
   },
 
   /**
-   * Delete a doctor account, profile, and documents.
+   * Delete a doctor account and profile.
    */
   deleteDoctor: (doctorUserId) =>
     apiFetch(`/api/v1/admin/doctors/${doctorUserId}`, {
@@ -28,7 +28,7 @@ export const adminApi = {
     apiFetch(`/api/v1/admin/doctors/pending?skip=${skip}&limit=${limit}`),
 
   /**
-   * View full doctor profile and uploaded documents.
+   * View full doctor profile and PMDC registration details.
    */
   getDoctorDetail: (doctorUserId) =>
     apiFetch(`/api/v1/admin/doctors/${doctorUserId}`),
@@ -41,20 +41,5 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify({ action, feedback }),
     }),
-
-  /**
-   * Get the URL to view a document inline in the browser (PDF/images).
-   */
-  getDocumentViewUrl: (documentId) => {
-    const { accessToken } = getStoredTokens();
-    return `${API_BASE_URL}/api/v1/admin/doctors/documents/${documentId}/download?inline=true&token=${accessToken}`;
-  },
-
-  /**
-   * Get the URL to download a document as an attachment.
-   */
-  getDocumentDownloadUrl: (documentId) => {
-    const { accessToken } = getStoredTokens();
-    return `${API_BASE_URL}/api/v1/admin/doctors/documents/${documentId}/download?token=${accessToken}`;
-  },
 };
+

@@ -3,14 +3,15 @@ import { Input } from '../common/Input';
 import { Button } from '../common/Button';
 import { Toast } from '../common/Toast';
 import { doctorApi } from '../../api/doctor';
-import { Save, User, Phone, Award, FileText, Clock, GraduationCap } from 'lucide-react';
+import { Save, User, Users, ShieldCheck, Phone, Award, Clock, GraduationCap } from 'lucide-react';
 
 export function ProfileForm({ initialData, onProfileUpdated, disabled = false }) {
   const [formData, setFormData] = useState({
     full_name: '',
+    father_name: '',
+    pmdc_registration_number: '',
     phone_number: '',
     specialization: '',
-    license_number: '',
     years_of_experience: 0,
     qualification: '',
     bio: '',
@@ -24,9 +25,10 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
     if (initialData) {
       setFormData({
         full_name: initialData.full_name || '',
+        father_name: initialData.father_name || '',
+        pmdc_registration_number: initialData.pmdc_registration_number || initialData.license_number || '',
         phone_number: initialData.phone_number || '',
         specialization: initialData.specialization || '',
-        license_number: initialData.license_number || '',
         years_of_experience: initialData.years_of_experience ?? 0,
         qualification: initialData.qualification || '',
         bio: initialData.bio || '',
@@ -48,11 +50,9 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
   const validate = () => {
     const errs = {};
     if (!formData.full_name.trim()) errs.full_name = 'Full name is required';
-    if (!formData.phone_number.trim()) errs.phone_number = 'Phone number is required';
-    if (!formData.specialization.trim()) errs.specialization = 'Medical specialization is required';
-    if (!formData.license_number.trim()) errs.license_number = 'Medical license number is required';
+    if (!formData.father_name.trim()) errs.father_name = "Father's name is required";
+    if (!formData.pmdc_registration_number.trim()) errs.pmdc_registration_number = 'PMDC registration number is required';
     if (formData.years_of_experience < 0) errs.years_of_experience = 'Experience cannot be negative';
-    if (!formData.qualification.trim()) errs.qualification = 'Qualifications (e.g. MBBS, MD) are required';
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -61,7 +61,7 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) {
-      setToast({ type: 'error', message: 'Please fix the errors before saving.' });
+      setToast({ type: 'error', message: 'Please provide all mandatory fields (Full Name, Father Name, PMDC Reg No).' });
       return;
     }
 
@@ -70,7 +70,7 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
 
     try {
       const updatedProfile = await doctorApi.updateProfile(formData);
-      setToast({ type: 'success', message: 'Professional information saved successfully!' });
+      setToast({ type: 'success', message: 'Profile details saved successfully!' });
       if (onProfileUpdated) onProfileUpdated(updatedProfile);
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to update profile.' });
@@ -83,8 +83,10 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
     <div className="card">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
         <div>
-          <h3>Professional Profile Details</h3>
-          <p style={{ fontSize: '0.85rem' }}>Enter your clinical qualifications and medical registration information.</p>
+          <h3>Doctor Profile & Verification Details</h3>
+          <p style={{ fontSize: '0.85rem' }}>
+            Full Name, Father Name, and PMDC Registration Number are mandatory for regulatory verification.
+          </p>
         </div>
       </div>
 
@@ -92,8 +94,9 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
 
       <form onSubmit={handleSubmit}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+          {/* Mandatory: Full Name */}
           <Input
-            label="Full Doctor Name"
+            label="Full Doctor Name *"
             name="full_name"
             value={formData.full_name}
             onChange={handleChange}
@@ -104,42 +107,57 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
             disabled={disabled}
           />
 
+          {/* Mandatory: Father Name */}
           <Input
-            label="Phone Number"
-            name="phone_number"
-            value={formData.phone_number}
+            label="Father's Name *"
+            name="father_name"
+            value={formData.father_name}
             onChange={handleChange}
-            placeholder="e.g. +1 555-019-2834"
-            error={errors.phone_number}
-            icon={<Phone size={16} />}
+            placeholder="e.g. Muhammad Jenkins"
+            error={errors.father_name}
+            icon={<Users size={16} />}
             required
             disabled={disabled}
           />
 
+          {/* Mandatory: PMDC Registration Number */}
+          <Input
+            label="PMDC Registration Number *"
+            name="pmdc_registration_number"
+            value={formData.pmdc_registration_number}
+            onChange={handleChange}
+            placeholder="e.g. 12345-P or 98765-S"
+            error={errors.pmdc_registration_number}
+            icon={<ShieldCheck size={16} />}
+            required
+            disabled={disabled}
+          />
+
+          {/* Optional: Specialization */}
           <Input
             label="Specialization / Department"
             name="specialization"
             value={formData.specialization}
             onChange={handleChange}
-            placeholder="e.g. Cardiology, Neurology, General Surgery"
+            placeholder="e.g. General Physician, Cardiology"
             error={errors.specialization}
             icon={<Award size={16} />}
-            required
             disabled={disabled}
           />
 
+          {/* Optional: Phone */}
           <Input
-            label="Medical License / Registration No."
-            name="license_number"
-            value={formData.license_number}
+            label="Phone Number"
+            name="phone_number"
+            value={formData.phone_number}
             onChange={handleChange}
-            placeholder="e.g. MED-REG-2024-889"
-            error={errors.license_number}
-            icon={<FileText size={16} />}
-            required
+            placeholder="e.g. +92 300 1234567"
+            error={errors.phone_number}
+            icon={<Phone size={16} />}
             disabled={disabled}
           />
 
+          {/* Optional: Experience */}
           <Input
             label="Years of Experience"
             name="years_of_experience"
@@ -149,24 +167,26 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
             placeholder="0"
             error={errors.years_of_experience}
             icon={<Clock size={16} />}
-            required
             disabled={disabled}
           />
 
-          <Input
-            label="Qualifications & Degrees"
-            name="qualification"
-            value={formData.qualification}
-            onChange={handleChange}
-            placeholder="e.g. MBBS, MD - Cardiology, Fellow of ACC"
-            error={errors.qualification}
-            icon={<GraduationCap size={16} />}
-            required
-            disabled={disabled}
-          />
+          {/* Optional: Qualifications */}
+          <div style={{ gridColumn: 'span 2' }}>
+            <Input
+              label="Qualifications & Degrees"
+              name="qualification"
+              value={formData.qualification}
+              onChange={handleChange}
+              placeholder="e.g. MBBS, FCPS, MRCP"
+              error={errors.qualification}
+              icon={<GraduationCap size={16} />}
+              disabled={disabled}
+            />
+          </div>
         </div>
 
-        <div className="form-group" style={{ marginTop: '0.5rem' }}>
+        {/* Optional: Bio */}
+        <div className="form-group" style={{ marginTop: '0.75rem' }}>
           <label className="form-label">Professional Biography & Summary</label>
           <textarea
             name="bio"
@@ -174,13 +194,13 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
             className="form-control"
             value={formData.bio}
             onChange={handleChange}
-            placeholder="Brief overview of clinical background, areas of expertise, and medical research interests..."
+            placeholder="Brief overview of clinical practice and areas of medical expertise..."
             disabled={disabled}
           />
         </div>
 
         {!disabled && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.25rem' }}>
             <Button
               type="submit"
               variant="primary"

@@ -42,9 +42,9 @@ export function StatusCard({ status, submittedAt, reviewedAt, onSubmitted }) {
 
           <p style={{ fontSize: '0.9rem', margin: 0 }}>
             {isActive && 'Your medical profile has been verified and approved by the SaaS Administrator.'}
-            {isUnderReview && `Submitted on ${new Date(submittedAt).toLocaleString()}. Our administration team is reviewing your documents.`}
-            {isDraft && 'Please complete all profile details and upload at least one verification document before submitting.'}
-            {isRejected && 'Your application requires revisions. Please review the admin feedback above, make changes, and re-submit.'}
+            {isUnderReview && `Submitted on ${new Date(submittedAt).toLocaleString()}. Our administration team is reviewing your PMDC credentials.`}
+            {isDraft && 'Please complete your mandatory profile details (Full Name, Father Name, PMDC Registration Number) before submitting for verification.'}
+            {isRejected && 'Your application requires revisions. Please review the admin feedback above, update your details, and re-submit.'}
           </p>
         </div>
 

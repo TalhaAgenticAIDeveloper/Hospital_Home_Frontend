@@ -6,7 +6,6 @@ import { DashboardLayout } from '../components/dashboard/DashboardLayout';
 import { FeedbackBanner } from '../components/doctor/FeedbackBanner';
 import { StatusCard } from '../components/doctor/StatusCard';
 import { ProfileForm } from '../components/doctor/ProfileForm';
-import { DocumentUploader } from '../components/doctor/DocumentUploader';
 import { DoctorOnboardingModal } from '../components/doctor/DoctorOnboardingModal';
 import { AvailabilityManager } from '../components/doctor/AvailabilityManager';
 import { DoctorMeetingsList } from '../components/doctor/DoctorMeetingsList';
@@ -61,7 +60,7 @@ export function DoctorPortalPage() {
   // Compute active tab from URL and doctor status
   const allowedTabs = isActive
     ? ['consultations', 'availability', 'profile']
-    : ['status', 'profile', 'documents'];
+    : ['status', 'profile'];
   const defaultTab = isActive ? 'consultations' : 'status';
   const activeTab = allowedTabs.includes(section) ? section : defaultTab;
 
@@ -88,27 +87,24 @@ export function DoctorPortalPage() {
       return [
         { key: 'consultations', label: 'Appointments & Consultations', icon: Video },
         { key: 'availability', label: 'Availability & Schedule', icon: Calendar },
-        { key: 'profile', label: 'Doctor Profile & Documents', icon: UserCheck },
+        { key: 'profile', label: 'Doctor Profile', icon: UserCheck },
       ];
     }
     if (isUnderReview) {
       return [
         { key: 'status', label: 'Verification Timeline', icon: Clock, badge: 'In Review', badgeVariant: 'warning' },
         { key: 'profile', label: 'Submitted Profile', icon: UserCheck },
-        { key: 'documents', label: 'Uploaded Documents', icon: FileText },
       ];
     }
     if (isRejected) {
       return [
         { key: 'status', label: 'Application Feedback', icon: AlertTriangle, badge: 'Action Required', badgeVariant: 'danger' },
         { key: 'profile', label: 'Edit Profile Information', icon: UserCheck },
-        { key: 'documents', label: 'Manage Documents', icon: FileText },
       ];
     }
     return [
       { key: 'status', label: 'Onboarding Checklist', icon: Clock },
-      { key: 'profile', label: 'Doctor Profile Information', icon: UserCheck },
-      { key: 'documents', label: 'Upload Credentials', icon: FileText },
+      { key: 'profile', label: 'Doctor Profile Details', icon: UserCheck },
     ];
   };
 
@@ -118,14 +114,14 @@ export function DoctorPortalPage() {
         case 'availability':
           return { title: 'Availability & Schedule' };
         case 'profile':
-          return { title: 'Doctor Profile & Documents' };
+          return { title: 'Doctor Profile Details' };
         case 'consultations':
         default:
           return { title: `Dr. ${profile?.full_name || 'Practitioner'}` };
       }
     }
     if (isUnderReview) {
-      return { title: 'Verification In Progress' };
+      return { title: 'PMDC Verification In Progress' };
     }
     if (isRejected) {
       return { title: 'Application Revision' };
@@ -138,45 +134,20 @@ export function DoctorPortalPage() {
 
   return (
     <DashboardLayout
-      roleTitle="Doctor Portal"
-      roleBadge={isActive ? 'Verified Doctor' : profile?.status ? profile.status.toUpperCase() : 'Doctor'}
+      roleTitle="Clinical Portal"
+      roleBadge="Healthcare Provider"
       navItems={navItems}
       activeKey={activeTab}
       onSelectNav={(key) => navigate(`/doctor/portal/${key}`)}
       pageTitle={meta.title}
-      quickAction={
+      pageSubtitle={
         isActive
-          ? {
-              label: 'Set Free Timings',
-              icon: <Calendar size={16} />,
-              onClick: () => navigate('/doctor/portal/availability'),
-            }
-          : isRejected
-          ? {
-              label: 'Resubmit Application',
-              icon: <Send size={16} />,
-              onClick: () => setShowResubmitModal(true),
-            }
-          : null
+          ? `Provider ID: ${profile?.pmdc_registration_number ? `PMDC #${profile.pmdc_registration_number}` : (user?.id || '')}`
+          : 'Complete your profile to receive administrative approval'
       }
       headerActions={
-        <span
-          style={{
-            fontSize: '0.78rem',
-            padding: '0.35rem 0.75rem',
-            borderRadius: 'var(--radius-full)',
-            background: isActive ? '#dcfce7' : isRejected ? '#fee2e2' : '#fef3c7',
-            color: isActive ? '#166534' : isRejected ? '#991b1b' : '#92400e',
-            fontWeight: 700,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.35rem',
-          }}
-        >
-          {isActive && '✓ Verified Active'}
-          {isUnderReview && '⏳ Under Admin Review'}
-          {isRejected && '⚠ Revision Needed'}
-          {!isActive && !isUnderReview && !isRejected && '● Onboarding Draft'}
+        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          Signed in as <strong>{user?.email}</strong>
         </span>
       }
     >
@@ -188,18 +159,11 @@ export function DoctorPortalPage() {
           {activeTab === 'consultations' && <DoctorMeetingsList />}
           {activeTab === 'availability' && <AvailabilityManager />}
           {activeTab === 'profile' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <ProfileForm
-                initialData={profile}
-                onProfileUpdated={loadProfile}
-                disabled={false}
-              />
-              <DocumentUploader
-                documents={profile?.documents || []}
-                onDocumentsChanged={loadProfile}
-                disabled={false}
-              />
-            </div>
+            <ProfileForm
+              initialData={profile}
+              onProfileUpdated={loadProfile}
+              disabled={false}
+            />
           )}
         </>
       )}
@@ -235,10 +199,10 @@ export function DoctorPortalPage() {
                 </div>
 
                 <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
-                  Your Medical Verification is Under Processing
+                  Your PMDC Verification is Under Review
                 </h2>
                 <p style={{ fontSize: '0.98rem', color: 'var(--text-secondary)', maxWidth: '580px', margin: '0 auto 1.25rem', lineHeight: 1.6 }}>
-                  Our administrative verification team is reviewing your medical degree, state license, and submitted certificates. You will receive active clinical access as soon as it is approved.
+                  Our administrative verification team is verifying your PMDC Registration Number ({profile?.pmdc_registration_number || 'Pending'}) and profile credentials against council records. You will receive active practicing access upon approval.
                 </p>
 
                 {profile.submitted_at && (
@@ -248,45 +212,43 @@ export function DoctorPortalPage() {
                       alignItems: 'center',
                       gap: '0.5rem',
                       padding: '0.45rem 1.25rem',
-                      background: 'var(--bg-card)',
+                      background: 'rgba(255, 255, 255, 0.85)',
                       borderRadius: 'var(--radius-full)',
+                      border: '1px solid #6ee7b7',
                       fontSize: '0.85rem',
-                      color: 'var(--text-muted)',
-                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-secondary)',
                     }}
                   >
-                    <FileText size={14} />
-                    Submitted on: <strong>{new Date(profile.submitted_at).toLocaleString()}</strong>
+                    <CheckCircle2 size={16} color="var(--status-active)" />
+                    <span>Application filed on <strong>{new Date(profile.submitted_at).toLocaleString()}</strong></span>
                   </div>
                 )}
               </div>
 
-              {/* Progress Timeline */}
-              <div className="card" style={{ padding: '2rem' }}>
-                <h3 style={{ fontSize: '1.1rem', marginBottom: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                  Verification Roadmap
-                </h3>
-                <div className="review-timeline">
+              {/* Progress Stepper Visualizer */}
+              <div className="card" style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ fontSize: '1.05rem', marginBottom: '1.25rem' }}>Onboarding Verification Pipeline</h3>
+                <div className="timeline-container">
                   <TimelineStep
                     icon={CheckCircle2}
                     label="Account Created"
-                    description="Provider user account registered"
+                    description="Email verified & security credentials established"
                     status="completed"
                   />
                   <TimelineStep
                     icon={CheckCircle2}
-                    label="Details & Documents Submitted"
-                    description={`Submitted on ${new Date(profile.submitted_at).toLocaleDateString()}`}
+                    label="Profile Details Saved"
+                    description="Full Name, Father Name & PMDC Registration Number submitted"
                     status="completed"
                   />
                   <TimelineStep
                     icon={Clock}
-                    label="Admin Credential Verification"
-                    description="Waiting for SaaS admin team review"
+                    label="Administrative Verification"
+                    description="PMDC credentials audit by SaaS Administrator"
                     status="active"
                   />
                   <TimelineStep
-                    icon={ShieldCheck}
+                    icon={Sparkles}
                     label="Practicing Activation"
                     description="Full video consultation and booking access unlocked"
                     status="pending"
@@ -301,14 +263,6 @@ export function DoctorPortalPage() {
             <ProfileForm
               initialData={profile}
               onProfileUpdated={loadProfile}
-              disabled={true}
-            />
-          )}
-
-          {activeTab === 'documents' && (
-            <DocumentUploader
-              documents={profile?.documents || []}
-              onDocumentsChanged={loadProfile}
               disabled={true}
             />
           )}
@@ -347,7 +301,7 @@ export function DoctorPortalPage() {
                     Update Credentials & Resubmit
                   </h3>
                   <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', margin: 0 }}>
-                    Please review the administrator notes above, rectify your details or re-upload clear license copies, then resubmit.
+                    Please review the administrator notes above, rectify your Full Name, Father Name, or PMDC Number, then resubmit.
                   </p>
                 </div>
                 <Button
@@ -375,14 +329,6 @@ export function DoctorPortalPage() {
               disabled={false}
             />
           )}
-
-          {activeTab === 'documents' && (
-            <DocumentUploader
-              documents={profile?.documents || []}
-              onDocumentsChanged={loadProfile}
-              disabled={false}
-            />
-          )}
         </>
       )}
 
@@ -402,14 +348,6 @@ export function DoctorPortalPage() {
             <ProfileForm
               initialData={profile}
               onProfileUpdated={loadProfile}
-              disabled={false}
-            />
-          )}
-
-          {activeTab === 'documents' && (
-            <DocumentUploader
-              documents={profile?.documents || []}
-              onDocumentsChanged={loadProfile}
               disabled={false}
             />
           )}
@@ -438,29 +376,21 @@ function TimelineStep({ icon: Icon, label, description, status, isLast = false }
           <Icon
             size={18}
             color={
-              isCompleted ? '#ffffff' :
-              isActive ? 'var(--status-pending)' :
-              'var(--text-muted)'
+              isCompleted
+                ? '#ffffff'
+                : isActive
+                ? 'var(--status-pending)'
+                : 'var(--text-muted)'
             }
           />
         </div>
-        {!isLast && <div className={`timeline-connector ${isCompleted ? 'completed' : ''}`} />}
+        {!isLast && <div className={`timeline-line ${status}`} />}
       </div>
       <div className="timeline-content">
-        <div style={{
-          fontWeight: 700,
-          fontSize: '0.95rem',
-          color: isCompleted ? 'var(--status-active-text)' : isActive ? 'var(--status-pending-text)' : 'var(--text-muted)',
-        }}>
+        <div className="timeline-label" style={{ fontWeight: isActive ? 700 : 600 }}>
           {label}
         </div>
-        <p style={{
-          fontSize: '0.8rem',
-          color: 'var(--text-muted)',
-          margin: '0.15rem 0 0',
-        }}>
-          {description}
-        </p>
+        <div className="timeline-desc">{description}</div>
       </div>
     </div>
   );

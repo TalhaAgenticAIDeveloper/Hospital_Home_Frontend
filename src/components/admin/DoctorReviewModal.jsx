@@ -4,7 +4,7 @@ import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
 import { Toast } from '../common/Toast';
 import { adminApi } from '../../api/admin';
-import { Check, X, FileText, FileCheck, AlertOctagon, Eye, Download } from 'lucide-react';
+import { Check, X, ShieldCheck, AlertOctagon, ExternalLink, User, Users } from 'lucide-react';
 
 export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed }) {
   const [doctorDetail, setDoctorDetail] = useState(null);
@@ -83,14 +83,6 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
     }
   };
 
-  const formatFileSize = (bytes) => {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
   return (
     <Modal
       isOpen={isOpen}
@@ -155,7 +147,7 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
 
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-          <p>Loading application details & documents...</p>
+          <p>Loading application details...</p>
         </div>
       ) : doctorDetail ? (
         <div>
@@ -178,13 +170,13 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
                 <span>Enter Mandatory Rejection Reason / Feedback</span>
               </div>
               <p style={{ fontSize: '0.85rem', color: '#881337', marginBottom: '0.5rem' }}>
-                Specify clearly what is missing or invalid (e.g. illegible license copy, expired certificate, missing credentials). This feedback will be displayed directly to the doctor so they can correct it and re-submit.
+                Specify clearly what is missing or invalid (e.g. invalid PMDC registration number, name mismatch with PMDC registry). This feedback will be displayed directly to the doctor so they can correct it and re-submit.
               </p>
               <textarea
                 rows="4"
                 className="form-control"
                 style={{ background: '#ffffff', borderColor: '#f43f5e' }}
-                placeholder="e.g. The uploaded Medical License copy is blurry and expired. Please upload a certified renewal copy."
+                placeholder="e.g. The PMDC registration number provided does not match official PMDC registry records or invalid Father's name. Please update your details and re-submit."
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
                 autoFocus
@@ -195,16 +187,30 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
           {/* Professional Credentials Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', background: 'var(--bg-alt)', padding: '1.25rem', borderRadius: 'var(--radius-md)', marginBottom: '1.25rem' }}>
             <div>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Specialization</span>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Doctor Full Name</span>
               <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
-                {doctorDetail.specialization || 'N/A'}
+                {doctorDetail.full_name || 'N/A'}
               </p>
             </div>
 
             <div>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Medical License No.</span>
-              <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace', marginTop: '2px' }}>
-                {doctorDetail.license_number || 'N/A'}
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Father's Name</span>
+              <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                {doctorDetail.father_name || 'N/A'}
+              </p>
+            </div>
+
+            <div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>PMDC Reg. Number</span>
+              <p style={{ fontWeight: 600, color: 'var(--primary)', fontFamily: 'monospace', marginTop: '2px' }}>
+                {doctorDetail.pmdc_registration_number || doctorDetail.license_number || 'N/A'}
+              </p>
+            </div>
+
+            <div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Specialization</span>
+              <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                {doctorDetail.specialization || 'N/A'}
               </p>
             </div>
 
@@ -239,71 +245,32 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
             )}
           </div>
 
-          {/* Uploaded Verification Documents */}
-          <div>
-            <h4 style={{ fontSize: '0.95rem', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <FileCheck size={18} color="var(--primary)" />
-              <span>Uploaded Documents ({doctorDetail.documents.length})</span>
-            </h4>
-
-            {doctorDetail.documents.length === 0 ? (
-              <p style={{ fontSize: '0.85rem', color: 'var(--status-rejected)', background: 'var(--status-rejected-bg)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
-                Warning: No verification files uploaded by this applicant.
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {doctorDetail.documents.map((doc) => (
-                  <div
-                    key={doc.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '0.75rem 1rem',
-                      background: 'var(--bg-card)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 'var(--radius-sm)',
-                      flexWrap: 'wrap',
-                      gap: '0.5rem',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: '220px', flex: 1 }}>
-                      <FileText size={20} color="var(--primary)" />
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{doc.original_filename}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          {doc.document_type.replace('_', ' ').toUpperCase()} • {formatFileSize(doc.file_size)} • Uploaded {new Date(doc.created_at).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
-                      <a
-                        href={adminApi.getDocumentViewUrl(doc.id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-secondary btn-sm"
-                        style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.6rem', fontSize: '0.78rem' }}
-                        title="View document in browser"
-                      >
-                        <Eye size={13} />
-                        <span>View</span>
-                      </a>
-                      <a
-                        href={adminApi.getDocumentDownloadUrl(doc.id)}
-                        download={doc.original_filename}
-                        className="btn btn-primary btn-sm"
-                        style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.6rem', fontSize: '0.78rem' }}
-                        title="Download document"
-                      >
-                        <Download size={13} />
-                        <span>Download</span>
-                      </a>
-                    </div>
-                  </div>
-                ))}
+          {/* PMDC Regulatory Verification Card */}
+          <div style={{ background: 'var(--bg-alt)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <ShieldCheck size={20} color="var(--primary)" />
+                <h4 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 700 }}>
+                  PMDC Regulatory Verification
+                </h4>
               </div>
-            )}
+              <a
+                href="https://www.pmdc.pk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', textDecoration: 'none', fontSize: '0.78rem' }}
+              >
+                <ExternalLink size={13} />
+                <span>Verify on PMDC Portal</span>
+              </a>
+            </div>
+
+            <div style={{ padding: '0.75rem 1rem', background: '#ecfdf5', borderRadius: 'var(--radius-sm)', borderLeft: '4px solid #10b981' }}>
+              <p style={{ margin: 0, fontSize: '0.82rem', color: '#065f46' }}>
+                <strong>No document upload required:</strong> Verify this applicant against PMDC records using their <strong>PMDC Registration No. ({doctorDetail.pmdc_registration_number || doctorDetail.license_number})</strong>, <strong>Full Name ({doctorDetail.full_name})</strong>, and <strong>Father's Name ({doctorDetail.father_name || 'N/A'})</strong>.
+              </p>
+            </div>
           </div>
         </div>
       ) : null}
