@@ -41,5 +41,24 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify({ action, feedback }),
     }),
+
+  /**
+   * List all registered patients with optional search query and pagination.
+   */
+  listPatients: ({ search = '', skip = 0, limit = 50 } = {}) => {
+    const params = new URLSearchParams();
+    if (search && search.trim()) params.append('search', search.trim());
+    params.append('skip', skip);
+    params.append('limit', limit);
+    return apiFetch(`/api/v1/admin/patients?${params.toString()}`);
+  },
+
+  /**
+   * Permanently delete a patient user account, cascade records, and clean files.
+   */
+  deletePatient: (patientUserId) =>
+    apiFetch(`/api/v1/admin/patients/${patientUserId}`, {
+      method: 'DELETE',
+    }),
 };
 

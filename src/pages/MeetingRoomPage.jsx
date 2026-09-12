@@ -37,8 +37,10 @@ import {
 import { DoctorRatingModal } from '../components/patient/DoctorRatingModal';
 import { PrescriptionWriter } from '../components/doctor/PrescriptionWriter';
 import { PrescriptionView } from '../components/patient/PrescriptionView';
+import { AIExtractionReview } from '../components/doctor/AIExtractionReview';
 import { ratingApi } from '../api/rating';
 import { prescriptionApi } from '../api/prescription';
+import { consultationAiApi } from '../api/consultationAi';
 
 
 const ICE_SERVERS = {
@@ -81,6 +83,7 @@ export function MeetingRoomPage() {
   const [hasRated, setHasRated] = useState(false);
   const [userRating, setUserRating] = useState(null);
   const [showPrescriptionWriter, setShowPrescriptionWriter] = useState(false);
+  const [showAIExtractionReview, setShowAIExtractionReview] = useState(false);
   const [showPrescriptionView, setShowPrescriptionView] = useState(false);
   const [prescription, setPrescription] = useState(null);
 
@@ -104,6 +107,8 @@ export function MeetingRoomPage() {
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const wsRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   // ─── 1. Load Meeting Details and Unblock UI Immediately ───────────────────
   useEffect(() => {
@@ -166,9 +171,21 @@ export function MeetingRoomPage() {
           setPrescription(rx);
         }
       } catch (err) {
-        // If doctor and no prescription yet, auto-open prescription writer
+        // If doctor and no prescription yet, check AI status or open AI extraction review
         if (isMounted && user?.role === 'doctor') {
-          setShowPrescriptionWriter(true);
+          consultationAiApi.getStatus(meetingId)
+            .then((status) => {
+              if (isMounted) {
+                if (status.audio_uploaded || status.transcription_status !== 'pending' || status.extraction_status) {
+                  setShowAIExtractionReview(true);
+                } else {
+                  setShowPrescriptionWriter(true);
+                }
+              }
+            })
+            .catch(() => {
+              if (isMounted) setShowPrescriptionWriter(true);
+            });
         }
       }
 
@@ -414,6 +431,72 @@ export function MeetingRoomPage() {
     return () => clearInterval(id);
   }, [meeting, sessionState]);
 
+  // ─── MediaRecorder Consultation Audio Capture ───────────────────────────
+  const startAudioRecording = (stream) => {
+    if (!stream) return;
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) return;
+
+    try {
+      const audioStream = new MediaStream([audioTrack]);
+      let mimeType = 'audio/webm';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        }
+      }
+
+      audioChunksRef.current = [];
+      const recorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined);
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      console.log('Consultation audio recording started for AI documentation');
+    } catch (err) {
+      console.warn('MediaRecorder could not be started:', err);
+    }
+  };
+
+  const stopAndUploadAudio = async (targetMeetingId) => {
+    const id = targetMeetingId || meeting?.id || meetingId;
+    if (!id) return null;
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.warn('Error stopping MediaRecorder:', e);
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    if (audioChunksRef.current.length > 0) {
+      try {
+        const mime = mediaRecorderRef.current?.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+        const ext = mime.includes('mp4') ? '.mp4' : '.webm';
+        const role = user?.role || 'doctor';
+        console.log(`Uploading ${role} consultation audio (${audioBlob.size} bytes)...`);
+        const res = await consultationAiApi.uploadAudio(id, audioBlob, `${role}${ext}`);
+        return res;
+      } catch (err) {
+        console.error('Failed to upload consultation audio:', err);
+      }
+    }
+    return null;
+  };
+
   // ─── 2. Safe Media Acquisition with Timeout Fallback ─────────────────────
   async function initializeMediaAndSignaling(meetingData) {
     let stream = null;
@@ -435,6 +518,7 @@ export function MeetingRoomPage() {
         localStreamRef.current = stream;
         setLocalStream(stream);
         setMediaStatus('ready');
+        startAudioRecording(stream);
       } catch (videoErr) {
         console.warn('Video acquisition failed or timed out. Trying audio-only:', videoErr);
 
@@ -444,6 +528,7 @@ export function MeetingRoomPage() {
           setLocalStream(stream);
           setIsVideoMuted(true);
           setMediaStatus('no-camera');
+          startAudioRecording(stream);
         } catch (audioErr) {
           console.warn('Microphone also unavailable/blocked:', audioErr);
           setMediaStatus('blocked');
@@ -606,6 +691,9 @@ export function MeetingRoomPage() {
           case 'meeting-ended':
             setSessionState('completed');
             setToast({ type: 'info', message: 'Consultation has been ended by the other party.' });
+            if (meetingData?.id) {
+              stopAndUploadAudio(meetingData.id);
+            }
             cleanupCall();
             break;
 
@@ -668,6 +756,10 @@ export function MeetingRoomPage() {
         );
       }
 
+      if (user?.role === 'patient') {
+        stopAndUploadAudio(meeting?.id || meetingId);
+      }
+
       cleanupCall();
       setSessionState('left');
       setBothJoined(false);
@@ -722,13 +814,26 @@ export function MeetingRoomPage() {
         );
       }
 
+      // Stop & upload doctor audio track
+      const uploadRes = await stopAndUploadAudio(meeting.id);
+
       await meetingApi.endMeeting(meeting.id, {
         doctor_notes: doctorNotes.trim() || undefined,
       });
 
+      // If audio was uploaded, start Groq Whisper transcription background pipeline
+      if (uploadRes) {
+        try {
+          await consultationAiApi.startTranscription(meeting.id);
+        } catch (sttErr) {
+          console.warn('Auto-transcription notice:', sttErr);
+        }
+      }
+
       setShowEndModal(false);
       setSessionState('completed');
-      setToast({ type: 'success', message: 'Consultation ended successfully!' });
+      setShowAIExtractionReview(true);
+      setToast({ type: 'success', message: 'Consultation ended. AI documentation is processing.' });
       cleanupCall();
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to end consultation.' });
@@ -738,6 +843,11 @@ export function MeetingRoomPage() {
   };
 
   function cleanupCall() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {}
+    }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
@@ -928,13 +1038,27 @@ export function MeetingRoomPage() {
                     View Issued Prescription ({prescription.medicines?.length || 0} Meds)
                   </Button>
                 ) : (
-                  <Button
-                    variant="primary"
-                    onClick={() => setShowPrescriptionWriter(true)}
-                    icon={<Pill size={16} />}
-                  >
-                    Write Prescription & Medicine Plan
-                  </Button>
+                  <>
+                    <Button
+                      variant="primary"
+                      onClick={() => setShowAIExtractionReview(true)}
+                      icon={<Sparkles size={16} />}
+                      style={{
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        border: 'none',
+                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                      }}
+                    >
+                      AI Consultation Review & Prescription
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setShowPrescriptionWriter(true)}
+                      icon={<Pill size={16} />}
+                    >
+                      Manual Prescription Writer
+                    </Button>
+                  </>
                 )}
               </div>
             )}
@@ -960,6 +1084,22 @@ export function MeetingRoomPage() {
             setHasRated(true);
             setUserRating(r.rating);
             setToast({ type: 'success', message: 'Thank you for your rating and feedback!' });
+          }}
+        />
+
+        <AIExtractionReview
+          isOpen={showAIExtractionReview}
+          onClose={() => setShowAIExtractionReview(false)}
+          meetingId={meetingId}
+          patientName={meeting?.patient_name}
+          onApproved={(rx) => {
+            setPrescription(rx);
+            setShowAIExtractionReview(false);
+            setToast({ type: 'success', message: 'Prescription approved & scheduled for reminders!' });
+          }}
+          onSwitchToManual={() => {
+            setShowAIExtractionReview(false);
+            setShowPrescriptionWriter(true);
           }}
         />
 
