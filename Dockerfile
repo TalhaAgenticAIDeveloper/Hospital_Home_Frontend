@@ -31,6 +31,7 @@ EXPOSE 5173
 
 # Start Vite with --host 0.0.0.0 so it is reachable outside the container
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+# CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
 
 # ------------------------------------------------------------------------------
 # Stage 3: Production Build (Compiles React/Vite into static assets)
