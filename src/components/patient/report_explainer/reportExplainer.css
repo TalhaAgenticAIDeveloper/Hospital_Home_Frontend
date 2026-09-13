@@ -213,10 +213,9 @@
 }
 
 .btn-expand-floating {
-  position: absolute;
-  top: -3.25rem;
-  left: 0;
-  display: flex;
+  align-self: flex-start;
+  margin-bottom: 0.85rem;
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.45rem 0.85rem;
@@ -228,11 +227,13 @@
   color: var(--text-secondary, #475569);
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
 }
 
 .btn-expand-floating:hover {
   background: var(--bg-alt, #f1f5f9);
   color: var(--primary, #2563eb);
+  border-color: var(--primary-border, #bfdbfe);
 }
 
 /* ── Main Feature Content ─────────────────────────────────────────────────── */
