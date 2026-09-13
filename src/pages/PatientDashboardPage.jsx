@@ -8,6 +8,7 @@ import { PatientMeetingsList } from '../components/patient/PatientMeetingsList';
 import { PatientDocumentsManager } from '../components/patient/PatientDocumentsManager';
 import { PatientProfileEditor } from '../components/patient/PatientProfileEditor';
 import { PatientPrescriptionsList } from '../components/patient/PatientPrescriptionsList';
+import { ReportExplainer } from '../components/patient/report_explainer/ReportExplainer';
 import {
   Video,
   Stethoscope,
@@ -17,9 +18,10 @@ import {
   AlertCircle,
   ArrowRight,
   Pill,
+  Sparkles,
 } from 'lucide-react';
 
-const VALID_TABS = ['book', 'appointments', 'prescriptions', 'documents', 'profile'];
+const VALID_TABS = ['book', 'appointments', 'prescriptions', 'documents', 'reports', 'profile'];
 
 export function PatientDashboardPage() {
   const { user } = useAuth();
@@ -48,6 +50,7 @@ export function PatientDashboardPage() {
     { key: 'appointments', label: 'My Consultations', icon: Video },
     { key: 'prescriptions', label: 'My Prescriptions', icon: Pill },
     { key: 'documents', label: 'Medical Records', icon: FolderOpen },
+    { key: 'reports', label: 'AI Report Explainer', icon: Sparkles },
     { key: 'profile', label: 'My Health Profile', icon: UserCheck },
   ];
 
@@ -59,6 +62,8 @@ export function PatientDashboardPage() {
         return { title: 'My Prescriptions' };
       case 'documents':
         return { title: 'Medical Records' };
+      case 'reports':
+        return { title: 'AI Medical Report Explainer' };
       case 'profile':
         return { title: 'My Health Profile' };
       case 'book':
@@ -147,6 +152,11 @@ export function PatientDashboardPage() {
       {/* ── Tab Content: Medical Documents Manager ── */}
       {activeTab === 'documents' && (
         <PatientDocumentsManager />
+      )}
+
+      {/* ── Tab Content: AI Medical Report Explainer (Patient Only) ── */}
+      {activeTab === 'reports' && (
+        <ReportExplainer />
       )}
 
       {/* ── Tab Content: Patient Profile Editor ── */}
