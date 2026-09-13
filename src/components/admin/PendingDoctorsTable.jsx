@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
-import { FileText, Eye, CheckCircle2, Trash2, Mail, Stethoscope } from 'lucide-react';
+import { Eye, CheckCircle2, Trash2, Mail, Stethoscope, ShieldCheck } from 'lucide-react';
 
 export function PendingDoctorsTable({
   doctors = [],
@@ -45,10 +45,10 @@ export function PendingDoctorsTable({
               <tr>
                 <th>Doctor & Email</th>
                 <th>Status</th>
+                <th>Father's Name</th>
+                <th>PMDC Reg. No.</th>
                 <th>Specialization</th>
-                <th>License No.</th>
                 <th>Experience</th>
-                <th>Documents</th>
                 <th>Submitted</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
@@ -67,22 +67,19 @@ export function PendingDoctorsTable({
                   <td>
                     <Badge status={doc.status} />
                   </td>
+                  <td style={{ fontSize: '0.85rem' }}>
+                    {doc.father_name || '—'}
+                  </td>
+                  <td style={{ fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary)' }}>
+                    {doc.pmdc_registration_number || doc.license_number || 'N/A'}
+                  </td>
                   <td>
                     <span className="badge badge-role" style={{ fontSize: '0.75rem' }}>
                       {doc.specialization || 'Not specified'}
                     </span>
                   </td>
-                  <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                    {doc.license_number || 'N/A'}
-                  </td>
                   <td>
                     {doc.years_of_experience ? `${doc.years_of_experience} yrs` : 'N/A'}
-                  </td>
-                  <td>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      <FileText size={15} color="var(--primary)" />
-                      <strong>{doc.document_count}</strong> files
-                    </span>
                   </td>
                   <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                     {doc.submitted_at
@@ -101,7 +98,7 @@ export function PendingDoctorsTable({
                         size="sm"
                         onClick={() => navigate(`/admin/doctors/${doc.user_id}`)}
                         icon={<Eye size={14} />}
-                        title="View Full Profile, Documents & Review"
+                        title="View Full Profile & Verify PMDC"
                       >
                         Inspect
                       </Button>
@@ -140,19 +137,16 @@ export function PendingDoctorsTable({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', background: 'var(--bg-alt)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', marginBottom: '0.85rem' }}>
               <div>
+                <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Father's Name</span>
+                <span style={{ fontWeight: 500 }}>{doc.father_name || 'N/A'}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>PMDC Reg. No.</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--primary)' }}>{doc.pmdc_registration_number || doc.license_number || 'N/A'}</span>
+              </div>
+              <div>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Specialization</span>
                 <span style={{ fontWeight: 600 }}>{doc.specialization || 'N/A'}</span>
-              </div>
-              <div>
-                <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>License No.</span>
-                <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{doc.license_number || 'N/A'}</span>
-              </div>
-              <div>
-                <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Documents</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                  <FileText size={13} color="var(--primary)" />
-                  <strong>{doc.document_count}</strong> files
-                </span>
               </div>
               <div>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Submitted</span>

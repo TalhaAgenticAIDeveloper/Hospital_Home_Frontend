@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE_URL, getStoredTokens } from './client';
+import { apiFetch } from './client';
 
 export const adminApi = {
   /**
@@ -14,7 +14,7 @@ export const adminApi = {
   },
 
   /**
-   * Delete a doctor account, profile, and documents.
+   * Delete a doctor account and profile.
    */
   deleteDoctor: (doctorUserId) =>
     apiFetch(`/api/v1/admin/doctors/${doctorUserId}`, {
@@ -28,7 +28,7 @@ export const adminApi = {
     apiFetch(`/api/v1/admin/doctors/pending?skip=${skip}&limit=${limit}`),
 
   /**
-   * View full doctor profile and uploaded documents.
+   * View full doctor profile and PMDC registration details.
    */
   getDoctorDetail: (doctorUserId) =>
     apiFetch(`/api/v1/admin/doctors/${doctorUserId}`),
@@ -43,18 +43,22 @@ export const adminApi = {
     }),
 
   /**
-   * Get the URL to view a document inline in the browser (PDF/images).
+   * List all registered patients with optional search query and pagination.
    */
-  getDocumentViewUrl: (documentId) => {
-    const { accessToken } = getStoredTokens();
-    return `${API_BASE_URL}/api/v1/admin/doctors/documents/${documentId}/download?inline=true&token=${accessToken}`;
+  listPatients: ({ search = '', skip = 0, limit = 50 } = {}) => {
+    const params = new URLSearchParams();
+    if (search && search.trim()) params.append('search', search.trim());
+    params.append('skip', skip);
+    params.append('limit', limit);
+    return apiFetch(`/api/v1/admin/patients?${params.toString()}`);
   },
 
   /**
-   * Get the URL to download a document as an attachment.
+   * Permanently delete a patient user account, cascade records, and clean files.
    */
-  getDocumentDownloadUrl: (documentId) => {
-    const { accessToken } = getStoredTokens();
-    return `${API_BASE_URL}/api/v1/admin/doctors/documents/${documentId}/download?token=${accessToken}`;
-  },
+  deletePatient: (patientUserId) =>
+    apiFetch(`/api/v1/admin/patients/${patientUserId}`, {
+      method: 'DELETE',
+    }),
 };
+

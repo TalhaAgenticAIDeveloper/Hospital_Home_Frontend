@@ -14,17 +14,18 @@ import {
   X,
   FileText,
   User,
+  Users,
   Award,
   Phone,
   Clock,
   GraduationCap,
   FileCheck,
   Shield,
+  ShieldCheck,
   AlertOctagon,
   Mail,
   Calendar,
-  Eye,
-  Download,
+  ExternalLink,
   Trash2,
   CheckCircle2,
 } from 'lucide-react';
@@ -143,11 +144,12 @@ export function DoctorReviewPage() {
   }
 
   const infoFields = [
-    { icon: User, label: 'Full Name', value: doctorDetail.full_name },
+    { icon: User, label: 'Full Doctor Name', value: doctorDetail.full_name },
+    { icon: Users, label: "Father's Name", value: doctorDetail.father_name },
+    { icon: ShieldCheck, label: 'PMDC Registration No.', value: doctorDetail.pmdc_registration_number || doctorDetail.license_number, mono: true },
     { icon: Mail, label: 'Email Address', value: doctorDetail.email },
     { icon: Phone, label: 'Phone Number', value: doctorDetail.phone_number },
     { icon: Award, label: 'Specialization', value: doctorDetail.specialization },
-    { icon: FileText, label: 'Medical License No.', value: doctorDetail.license_number, mono: true },
     { icon: Clock, label: 'Years of Experience', value: doctorDetail.years_of_experience ? `${doctorDetail.years_of_experience} Years` : null },
     { icon: GraduationCap, label: 'Qualifications & Degrees', value: doctorDetail.qualification, span: true },
   ];
@@ -351,95 +353,50 @@ export function DoctorReviewPage() {
         )}
       </div>
 
-      {/* Uploaded Documents */}
+      {/* PMDC Regulatory Verification */}
       <div className="card">
         <h3 style={{ fontSize: '1.15rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <FileCheck size={20} color="var(--primary)" />
-          Uploaded Verification Documents ({doctorDetail.documents?.length || 0})
+          <ShieldCheck size={20} color="var(--primary)" />
+          PMDC Regulatory Verification
         </h3>
 
-        {(!doctorDetail.documents || doctorDetail.documents.length === 0) ? (
-          <div style={{
-            padding: '2rem',
-            textAlign: 'center',
-            background: 'var(--status-rejected-bg)',
-            borderRadius: 'var(--radius-md)',
-            border: '1px dashed var(--status-rejected)',
-          }}>
-            <AlertOctagon size={36} color="var(--status-rejected)" style={{ opacity: 0.6, marginBottom: '0.5rem' }} />
-            <p style={{ fontWeight: 600, color: 'var(--status-rejected-text)', margin: 0 }}>
-              No verification documents were uploaded by this applicant.
-            </p>
-            <p style={{ fontSize: '0.85rem', color: 'var(--status-rejected-text)', opacity: 0.8, marginTop: '0.25rem' }}>
-              This is a critical flag — consider rejecting with feedback requesting document uploads.
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {doctorDetail.documents.map((doc) => (
-              <div
-                key={doc.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '1rem 1.25rem',
-                  background: 'var(--bg-alt)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-md)',
-                  transition: 'all 150ms ease',
-                  flexWrap: 'wrap',
-                  gap: '0.85rem',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: '240px', flex: 1 }}>
-                  <div style={{ padding: '0.6rem', background: 'var(--primary-light)', borderRadius: 'var(--radius-md)', flexShrink: 0 }}>
-                    <FileText size={22} color="var(--primary)" />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-                      {doc.original_filename}
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.15rem', flexWrap: 'wrap' }}>
-                      <span className="badge badge-role" style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem' }}>
-                        {doc.document_type.replace('_', ' ').toUpperCase()}
-                      </span>
-                      <span>•</span>
-                      <span>{formatFileSize(doc.file_size)}</span>
-                      <span>•</span>
-                      <span>Uploaded {new Date(doc.created_at).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* View & Download Action Buttons */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
-                  <a
-                    href={adminApi.getDocumentViewUrl(doc.id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-secondary btn-sm"
-                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-                    title="Open document in browser to view"
-                  >
-                    <Eye size={14} />
-                    <span>View</span>
-                  </a>
-                  <a
-                    href={adminApi.getDocumentDownloadUrl(doc.id)}
-                    download={doc.original_filename}
-                    className="btn btn-primary btn-sm"
-                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-                    title="Download document to your device"
-                  >
-                    <Download size={14} />
-                    <span>Download</span>
-                  </a>
-                </div>
+        <div style={{
+          padding: '1.5rem',
+          background: 'var(--bg-alt)',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border-color)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ padding: '0.75rem', background: 'var(--primary-light)', borderRadius: 'var(--radius-md)', color: 'var(--primary)' }}>
+                <ShieldCheck size={28} />
               </div>
-            ))}
+              <div>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Council Registration</span>
+                <h4 style={{ margin: 0, fontSize: '1.25rem', fontFamily: 'monospace', color: 'var(--primary)' }}>
+                  {doctorDetail.pmdc_registration_number || doctorDetail.license_number || 'NOT PROVIDED'}
+                </h4>
+              </div>
+            </div>
+
+            <a
+              href="https://www.pmdc.pk"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none' }}
+            >
+              <ExternalLink size={14} />
+              <span>Verify on PMDC Portal</span>
+            </a>
           </div>
-        )}
+
+          <div style={{ padding: '0.85rem 1rem', background: '#ecfdf5', borderRadius: 'var(--radius-sm)', borderLeft: '4px solid #10b981' }}>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#065f46' }}>
+              <strong>Direct Regulatory Verification:</strong> Documents are not required from doctors. Please cross-reference the doctor's Full Name, Father's Name, and PMDC Registration Number with the official PMDC registry records.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Bottom Action Bar (duplicate for convenience on long pages) */}

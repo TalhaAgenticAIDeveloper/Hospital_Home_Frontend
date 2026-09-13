@@ -1,25 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/auth';
 import { Input } from '../components/common/Input';
 import { Button } from '../components/common/Button';
 import { Toast } from '../components/common/Toast';
-import { DoctorOnboardingModal } from '../components/doctor/DoctorOnboardingModal';
-import { PatientOnboardingModal } from '../components/patient/PatientOnboardingModal';
-import { Mail, Lock, UserPlus, Stethoscope, User, CheckCircle2, Circle, Eye, EyeOff, ArrowLeft, ShieldCheck, KeyRound, Loader2 } from 'lucide-react';
+import { Mail, Lock, ShieldCheck, KeyRound, ArrowLeft, CheckCircle2, Circle, Eye, EyeOff, Loader2 } from 'lucide-react';
 
-const RESEND_COOLDOWN = 60; // seconds
+const RESEND_COOLDOWN = 60;
 
-export function SignupPage() {
-  // Multi-step: 1 = email+role, 2 = OTP verify, 3 = password setup
+export function ForgotPasswordPage() {
+  // Steps: 1 = email, 2 = OTP input, 3 = new password, 4 = success
   const [step, setStep] = useState(1);
-  const [role, setRole] = useState('patient');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
@@ -28,11 +20,12 @@ export function SignupPage() {
   const [resendTimer, setResendTimer] = useState(0);
   const otpRefs = useRef([]);
 
-  // Onboarding modal states
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showPatientOnboarding, setShowPatientOnboarding] = useState(false);
+  // Password state
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const { signup, login } = useAuth();
   const navigate = useNavigate();
 
   // Resend cooldown timer
@@ -44,7 +37,7 @@ export function SignupPage() {
     return () => clearInterval(interval);
   }, [resendTimer]);
 
-  // Auto-focus first OTP input when step 2 appears
+  // Auto-focus first OTP input
   useEffect(() => {
     if (step === 2 && otpRefs.current[0]) {
       setTimeout(() => otpRefs.current[0]?.focus(), 150);
@@ -59,14 +52,13 @@ export function SignupPage() {
     number: /\d/.test(password),
     special: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(password),
   };
-
   const isPasswordValid = Object.values(passwordChecks).every(Boolean);
 
-  // Step 1: Send OTP
+  // Step 1: Send reset OTP
   const handleSendOTP = async (e) => {
     e.preventDefault();
     if (!email.trim()) {
-      setToast({ type: 'warning', message: 'Email address is required.' });
+      setToast({ type: 'warning', message: 'Please enter your email address.' });
       return;
     }
 
@@ -74,26 +66,24 @@ export function SignupPage() {
     setToast(null);
 
     try {
-      await authApi.sendOtp({ email: email.trim(), purpose: 'signup' });
-      setToast({ type: 'success', message: 'Verification code sent to your email!' });
+      await authApi.forgotPassword({ email: email.trim() });
+      setToast({ type: 'success', message: 'If this email is registered, you will receive a reset code.' });
       setStep(2);
       setResendTimer(RESEND_COOLDOWN);
       setOtp(['', '', '', '', '', '']);
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Failed to send verification code.' });
+      setToast({ type: 'error', message: err.message || 'Failed to send reset code.' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // OTP Input Handlers
+  // OTP handlers
   const handleOtpChange = useCallback((index, value) => {
     if (!/^\d*$/.test(value)) return;
     const newOtp = [...otp];
     newOtp[index] = value.slice(-1);
     setOtp(newOtp);
-
-    // Auto-focus next input
     if (value && index < 5) {
       otpRefs.current[index + 1]?.focus();
     }
@@ -114,33 +104,22 @@ export function SignupPage() {
     }
   }, []);
 
-  // Step 2: Verify OTP
-  const handleVerifyOTP = async (e) => {
+  // Step 2: Proceed to password step (OTP will be verified on reset-password call)
+  const handleProceedToPassword = (e) => {
     e?.preventDefault();
     const otpString = otp.join('');
     if (otpString.length !== 6) {
       setToast({ type: 'warning', message: 'Please enter the complete 6-digit code.' });
       return;
     }
-
-    setIsLoading(true);
     setToast(null);
-
-    try {
-      await authApi.verifyOtp({ email: email.trim(), otp: otpString, purpose: 'signup' });
-      setToast({ type: 'success', message: 'Email verified successfully!' });
-      setStep(3);
-    } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Invalid verification code.' });
-    } finally {
-      setIsLoading(false);
-    }
+    setStep(3);
   };
 
-  // Auto-submit when all 6 digits are entered
+  // Auto-proceed when all 6 digits entered
   useEffect(() => {
-    if (step === 2 && otp.every((d) => d !== '') && !isLoading) {
-      handleVerifyOTP();
+    if (step === 2 && otp.every((d) => d !== '')) {
+      handleProceedToPassword();
     }
   }, [otp, step]);
 
@@ -151,8 +130,8 @@ export function SignupPage() {
     setToast(null);
 
     try {
-      await authApi.sendOtp({ email: email.trim(), purpose: 'signup' });
-      setToast({ type: 'success', message: 'New verification code sent!' });
+      await authApi.forgotPassword({ email: email.trim() });
+      setToast({ type: 'success', message: 'New reset code sent!' });
       setResendTimer(RESEND_COOLDOWN);
       setOtp(['', '', '', '', '', '']);
       otpRefs.current[0]?.focus();
@@ -163,14 +142,13 @@ export function SignupPage() {
     }
   };
 
-  // Step 3: Create Account
-  const handleSubmit = async (e) => {
+  // Step 3: Reset password (backend verifies OTP + sets new password in one call)
+  const handleResetPassword = async (e) => {
     e.preventDefault();
     if (!isPasswordValid) {
       setToast({ type: 'warning', message: 'Please ensure your password meets all security requirements.' });
       return;
     }
-
     if (password !== confirmPassword) {
       setToast({ type: 'error', message: 'Passwords do not match.' });
       return;
@@ -180,41 +158,25 @@ export function SignupPage() {
     setToast(null);
 
     try {
-      await signup(email.trim(), password, role);
-
-      // Automatically log user in after successful signup
-      await login(email.trim(), password);
-
-      if (role === 'doctor') {
-        setShowOnboarding(true);
-      } else {
-        setShowPatientOnboarding(true);
-      }
+      const otpString = otp.join('');
+      await authApi.resetPassword({
+        email: email.trim(),
+        otp: otpString,
+        new_password: password,
+      });
+      setStep(4);
     } catch (err) {
-      setToast({ type: 'error', message: err.message || 'Registration failed.' });
+      // If OTP was wrong, go back to OTP step
+      if (err.message && (err.message.toLowerCase().includes('verification code') || err.message.toLowerCase().includes('expired'))) {
+        setToast({ type: 'error', message: err.message });
+        setOtp(['', '', '', '', '', '']);
+        setStep(2);
+      } else {
+        setToast({ type: 'error', message: err.message || 'Failed to reset password.' });
+      }
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleOnboardingCompleted = () => {
-    setShowOnboarding(false);
-    navigate('/doctor/portal');
-  };
-
-  const handleOnboardingClose = () => {
-    setShowOnboarding(false);
-    navigate('/doctor/portal');
-  };
-
-  const handlePatientOnboardingCompleted = () => {
-    setShowPatientOnboarding(false);
-    navigate('/patient/dashboard');
-  };
-
-  const handlePatientOnboardingClose = () => {
-    setShowPatientOnboarding(false);
-    navigate('/patient/dashboard');
   };
 
   // Step indicator
@@ -262,66 +224,22 @@ export function SignupPage() {
     <div className="container page-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div className="card auth-card animate-slide-up" style={{ width: '100%', maxWidth: '480px', padding: '2.75rem 2.25rem' }}>
 
-        <StepIndicator />
+        {step < 4 && <StepIndicator />}
 
-        {/* ── Step 1: Email + Role ── */}
+        {/* ── Step 1: Email Input ── */}
         {step === 1 && (
           <div className="animate-fade-in">
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-              <h2 className="auth-heading">Create Account</h2>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                Register as a patient or apply as a medical provider
+              <div style={{ display: 'inline-flex', padding: '0.75rem', background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '50%', marginBottom: '0.75rem' }}>
+                <KeyRound size={28} />
+              </div>
+              <h2 className="auth-heading">Forgot Password</h2>
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Enter your email address and we'll send you a verification code to reset your password.
               </p>
             </div>
 
             {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
-
-            {/* Role Selection Tabs */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.5rem' }}>
-              <button
-                type="button"
-                onClick={() => setRole('patient')}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  padding: '0.85rem 0.5rem',
-                  border: `2px solid ${role === 'patient' ? 'var(--primary)' : 'var(--border-color)'}`,
-                  background: role === 'patient' ? 'var(--primary-light)' : 'var(--bg-card)',
-                  borderRadius: 'var(--radius-md)',
-                  cursor: 'pointer',
-                  transition: 'all 150ms ease',
-                }}
-              >
-                <User size={22} color={role === 'patient' ? 'var(--primary)' : 'var(--text-muted)'} />
-                <span style={{ fontWeight: 700, fontSize: '0.9rem', marginTop: '0.35rem', color: role === 'patient' ? 'var(--primary-hover)' : 'var(--text-primary)' }}>
-                  Patient
-                </span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Immediate Access</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setRole('doctor')}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  padding: '0.85rem 0.5rem',
-                  border: `2px solid ${role === 'doctor' ? 'var(--primary)' : 'var(--border-color)'}`,
-                  background: role === 'doctor' ? 'var(--primary-light)' : 'var(--bg-card)',
-                  borderRadius: 'var(--radius-md)',
-                  cursor: 'pointer',
-                  transition: 'all 150ms ease',
-                }}
-              >
-                <Stethoscope size={22} color={role === 'doctor' ? 'var(--primary)' : 'var(--text-muted)'} />
-                <span style={{ fontWeight: 700, fontSize: '0.9rem', marginTop: '0.35rem', color: role === 'doctor' ? 'var(--primary-hover)' : 'var(--text-primary)' }}>
-                  Doctor
-                </span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Requires Verification</span>
-              </button>
-            </div>
 
             <form onSubmit={handleSendOTP}>
               <Input
@@ -330,7 +248,7 @@ export function SignupPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
+                placeholder="user@example.com"
                 icon={<Mail size={16} />}
                 required
                 autoComplete="email"
@@ -344,27 +262,26 @@ export function SignupPage() {
                 block
                 style={{ marginTop: '0.5rem' }}
               >
-                Send Verification Code
+                Send Reset Code
               </Button>
             </form>
 
             <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.875rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem' }}>
-              Already have an account?{' '}
-              <Link to="/login" style={{ fontWeight: 600 }}>
-                Sign In
+              <Link to="/login" style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                <ArrowLeft size={14} /> Back to Sign In
               </Link>
             </div>
           </div>
         )}
 
-        {/* ── Step 2: OTP Verification ── */}
+        {/* ── Step 2: OTP Input ── */}
         {step === 2 && (
           <div className="animate-fade-in">
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
               <div style={{ display: 'inline-flex', padding: '0.75rem', background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '50%', marginBottom: '0.75rem' }}>
                 <ShieldCheck size={28} />
               </div>
-              <h2 className="auth-heading">Verify Your Email</h2>
+              <h2 className="auth-heading">Enter Reset Code</h2>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                 We sent a 6-digit code to<br />
                 <strong style={{ color: 'var(--text-primary)' }}>{email}</strong>
@@ -373,7 +290,7 @@ export function SignupPage() {
 
             {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
-            <form onSubmit={handleVerifyOTP}>
+            <form onSubmit={handleProceedToPassword}>
               {/* OTP Input Boxes */}
               <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
                 {otp.map((digit, idx) => (
@@ -414,24 +331,14 @@ export function SignupPage() {
                 ))}
               </div>
 
-              {/* Loading indicator */}
-              {isLoading && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1rem', color: 'var(--primary)' }}>
-                  <Loader2 size={18} className="otp-spinner" />
-                  <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Verifying...</span>
-                  <style>{`.otp-spinner { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
-                </div>
-              )}
-
               <Button
                 type="submit"
                 variant="primary"
-                loading={isLoading}
                 icon={<ShieldCheck size={16} />}
                 block
                 disabled={otp.join('').length !== 6}
               >
-                Verify Code
+                Continue
               </Button>
             </form>
 
@@ -457,12 +364,11 @@ export function SignupPage() {
                     textUnderlineOffset: '2px',
                   }}
                 >
-                  Resend Verification Code
+                  Resend Reset Code
                 </button>
               )}
             </div>
 
-            {/* Back button */}
             <div style={{ textAlign: 'center', marginTop: '1rem' }}>
               <button
                 type="button"
@@ -484,16 +390,16 @@ export function SignupPage() {
           </div>
         )}
 
-        {/* ── Step 3: Password Setup ── */}
+        {/* ── Step 3: New Password ── */}
         {step === 3 && (
           <div className="animate-fade-in">
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
               <div style={{ display: 'inline-flex', padding: '0.75rem', background: '#ecfdf5', color: '#059669', borderRadius: '50%', marginBottom: '0.75rem' }}>
-                <KeyRound size={28} />
+                <Lock size={28} />
               </div>
-              <h2 className="auth-heading">Set Your Password</h2>
+              <h2 className="auth-heading">New Password</h2>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                Email verified! Now create a secure password.
+                Create a new secure password for your account.
               </p>
             </div>
 
@@ -517,15 +423,15 @@ export function SignupPage() {
               {email}
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleResetPassword}>
               <div style={{ position: 'relative' }}>
                 <Input
-                  label="Password"
+                  label="New Password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Create strong password"
+                  placeholder="Create new password"
                   icon={<Lock size={16} />}
                   required
                   autoComplete="new-password"
@@ -550,14 +456,11 @@ export function SignupPage() {
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--primary)')}
                   onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
 
-              {/* Real-time Password Strength Checklist */}
               {password.length > 0 && (
                 <div style={{ background: 'var(--bg-alt)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
                   <div style={{ fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
@@ -575,12 +478,12 @@ export function SignupPage() {
 
               <div style={{ position: 'relative' }}>
                 <Input
-                  label="Confirm Password"
+                  label="Confirm New Password"
                   name="confirmPassword"
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm password"
+                  placeholder="Confirm new password"
                   icon={<Lock size={16} />}
                   required
                   autoComplete="new-password"
@@ -605,8 +508,6 @@ export function SignupPage() {
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--primary)')}
                   onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
-                  title={showConfirmPassword ? 'Hide password' : 'Show password'}
-                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                 >
                   {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -616,30 +517,74 @@ export function SignupPage() {
                 type="submit"
                 variant="primary"
                 loading={isLoading}
-                icon={<UserPlus size={16} />}
+                icon={<KeyRound size={16} />}
                 block
                 style={{ marginTop: '0.5rem' }}
               >
-                {role === 'doctor' ? 'Register & Begin Onboarding' : 'Complete Patient Signup'}
+                Reset Password
               </Button>
             </form>
+
+            {/* Back to OTP step */}
+            <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => { setStep(2); setToast(null); setOtp(['', '', '', '', '', '']); }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}
+              >
+                <ArrowLeft size={14} /> Re-enter code
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4: Success ── */}
+        {step === 4 && (
+          <div className="animate-fade-in" style={{ textAlign: 'center' }}>
+            <div style={{
+              display: 'inline-flex',
+              padding: '1rem',
+              background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+              borderRadius: '50%',
+              marginBottom: '1.25rem',
+              animation: 'pulse-success 2s ease-in-out infinite',
+            }}>
+              <CheckCircle2 size={48} color="#059669" />
+            </div>
+
+            <h2 className="auth-heading" style={{ color: '#059669' }}>Password Reset Successful!</h2>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '2rem', lineHeight: 1.6 }}>
+              Your password has been updated successfully.<br />
+              You can now sign in with your new password.
+            </p>
+
+            <Button
+              variant="primary"
+              block
+              onClick={() => navigate('/login')}
+              style={{ marginBottom: '0.75rem' }}
+            >
+              Sign In Now
+            </Button>
+
+            <style>{`
+              @keyframes pulse-success {
+                0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.2); }
+                50% { transform: scale(1.05); box-shadow: 0 0 0 12px rgba(5, 150, 105, 0); }
+              }
+            `}</style>
           </div>
         )}
       </div>
-
-      {/* Doctor Onboarding Modal */}
-      <DoctorOnboardingModal
-        isOpen={showOnboarding}
-        onClose={handleOnboardingClose}
-        onCompleted={handleOnboardingCompleted}
-      />
-
-      {/* Patient Onboarding Modal */}
-      <PatientOnboardingModal
-        isOpen={showPatientOnboarding}
-        onClose={handlePatientOnboardingClose}
-        onCompleted={handlePatientOnboardingCompleted}
-      />
     </div>
   );
 }
@@ -648,7 +593,7 @@ function CheckItem({ checked, text }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: checked ? 'var(--status-active-text)' : 'var(--text-muted)' }}>
       {checked ? <CheckCircle2 size={13} color="var(--status-active)" /> : <Circle size={13} />}
-      <span style={{ textDecoration: checked ? 'none' : 'none' }}>{text}</span>
+      <span>{text}</span>
     </div>
   );
 }

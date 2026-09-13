@@ -47,4 +47,48 @@ export const authApi = {
    */
   checkHealth: () => apiFetch('/health'),
   checkReady: () => apiFetch('/health/ready'),
+
+  // ── OTP & Email Verification ─────────────────────────────────────────
+
+  /**
+   * Send OTP to email for signup verification or password reset.
+   * @param {Object} params - { email: string, purpose: 'signup' | 'reset_password' }
+   */
+  sendOtp: ({ email, purpose }) =>
+    apiFetch('/api/v1/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, purpose }),
+    }),
+
+  /**
+   * Verify OTP code.
+   * @param {Object} params - { email: string, otp: string, purpose: 'signup' | 'reset_password' }
+   */
+  verifyOtp: ({ email, otp, purpose }) =>
+    apiFetch('/api/v1/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp, purpose }),
+    }),
+
+  // ── Password Reset ────────────────────────────────────────────────────
+
+  /**
+   * Request forgot-password OTP.
+   * @param {Object} params - { email: string }
+   */
+  forgotPassword: ({ email }) =>
+    apiFetch('/api/v1/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  /**
+   * Reset password with OTP verification.
+   * @param {Object} params - { email: string, otp: string, new_password: string }
+   */
+  resetPassword: ({ email, otp, new_password }) =>
+    apiFetch('/api/v1/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp, new_password }),
+    }),
 };

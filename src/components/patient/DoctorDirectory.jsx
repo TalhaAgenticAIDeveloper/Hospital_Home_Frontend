@@ -17,6 +17,7 @@ import {
   HeartPulse,
   Paperclip,
   AlertCircle,
+  Star,
 } from 'lucide-react';
 
 export function DoctorDirectory({ onMeetingBooked }) {
@@ -215,6 +216,46 @@ export function DoctorDirectory({ onMeetingBooked }) {
                         >
                           {doc.specialization || 'General Physician'}
                         </span>
+                        {doc.total_ratings > 0 ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              fontSize: '0.75rem',
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: 'var(--radius-full)',
+                              background: '#fef9c3',
+                              border: '1px solid #fde047',
+                              color: '#854d0e',
+                              fontWeight: 700,
+                            }}
+                          >
+                            <Star size={12} fill="#eab308" color="#eab308" />
+                            <span>{Number(doc.average_rating).toFixed(1)}</span>
+                            <span style={{ color: '#a16207', fontWeight: 500 }}>
+                              ({doc.total_ratings} {doc.total_ratings === 1 ? 'review' : 'reviews'})
+                            </span>
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              fontSize: '0.72rem',
+                              padding: '0.15rem 0.45rem',
+                              borderRadius: 'var(--radius-full)',
+                              background: '#f1f5f9',
+                              border: '1px solid #e2e8f0',
+                              color: '#64748b',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <Star size={11} color="#94a3b8" />
+                            <span>New Doctor</span>
+                          </span>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
