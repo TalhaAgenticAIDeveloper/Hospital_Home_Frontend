@@ -12,7 +12,7 @@ import {
 import { SAMPLE_REPORTS, createSampleReportImageFile } from '../../../data/sampleReports';
 
 const ALLOWED_EXTS = ['.pdf', '.png', '.jpg', '.jpeg'];
-const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 20 MB
+const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 export function ReportUpload({ onUpload, isProcessing }) {
   const [dragActive, setDragActive] = useState(false);
@@ -32,7 +32,7 @@ export function ReportUpload({ onUpload, isProcessing }) {
     }
 
     if (file.size > MAX_SIZE_BYTES) {
-      setErrorMsg('File size exceeds the 20 MB limit. Please select a smaller file.');
+      setErrorMsg('File size exceeds the 50 MB limit. Please select a smaller file.');
       return;
     }
 
@@ -151,7 +151,7 @@ export function ReportUpload({ onUpload, isProcessing }) {
               <span className="format-tag">
                 <ImageIcon size={14} /> JPG / JPEG
               </span>
-              <span className="format-size-limit">Up to 20 MB</span>
+              <span className="format-size-limit">Up to 50 MB</span>
             </div>
           </div>
         ) : (
