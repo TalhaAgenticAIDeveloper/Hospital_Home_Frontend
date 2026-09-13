@@ -12,7 +12,7 @@ import {
 import { SAMPLE_REPORTS, createSampleReportImageFile } from '../../../data/sampleReports';
 
 const ALLOWED_EXTS = ['.pdf', '.png', '.jpg', '.jpeg'];
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_SIZE_BYTES = 50 * 1024 * 1024; // 20 MB
 
 export function ReportUpload({ onUpload, isProcessing }) {
   const [dragActive, setDragActive] = useState(false);
