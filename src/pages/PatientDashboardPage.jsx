@@ -9,6 +9,7 @@ import { PatientDocumentsManager } from '../components/patient/PatientDocumentsM
 import { PatientProfileEditor } from '../components/patient/PatientProfileEditor';
 import { PatientPrescriptionsList } from '../components/patient/PatientPrescriptionsList';
 import { ReportExplainer } from '../components/patient/report_explainer/ReportExplainer';
+import { PlanMaker } from '../components/patient/plan_maker/PlanMaker';
 import {
   Video,
   Stethoscope,
@@ -19,9 +20,10 @@ import {
   ArrowRight,
   Pill,
   Sparkles,
+  CalendarHeart,
 } from 'lucide-react';
 
-const VALID_TABS = ['book', 'appointments', 'prescriptions', 'documents', 'reports', 'profile'];
+const VALID_TABS = ['book', 'appointments', 'prescriptions', 'documents', 'reports', 'plan', 'profile'];
 
 export function PatientDashboardPage() {
   const { user } = useAuth();
@@ -51,6 +53,7 @@ export function PatientDashboardPage() {
     { key: 'prescriptions', label: 'My Prescriptions', icon: Pill },
     { key: 'documents', label: 'Medical Records', icon: FolderOpen },
     { key: 'reports', label: 'AI Report Explainer', icon: Sparkles },
+    { key: 'plan', label: 'AI Health Plan', icon: CalendarHeart },
     { key: 'profile', label: 'My Health Profile', icon: UserCheck },
   ];
 
@@ -64,6 +67,8 @@ export function PatientDashboardPage() {
         return { title: 'Medical Records' };
       case 'reports':
         return { title: 'AI Medical Report Explainer' };
+      case 'plan':
+        return { title: 'AI Health & Wellness Plan' };
       case 'profile':
         return { title: 'My Health Profile' };
       case 'book':
@@ -157,6 +162,11 @@ export function PatientDashboardPage() {
       {/* ── Tab Content: AI Medical Report Explainer (Patient Only) ── */}
       {activeTab === 'reports' && (
         <ReportExplainer />
+      )}
+
+      {/* ── Tab Content: AI Health & Wellness Plan Maker (Patient Only) ── */}
+      {activeTab === 'plan' && (
+        <PlanMaker />
       )}
 
       {/* ── Tab Content: Patient Profile Editor ── */}
