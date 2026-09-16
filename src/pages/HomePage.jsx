@@ -384,7 +384,7 @@ export function HomePage() {
             {/* Nav Links */}
             <div className="hp-footer-links">
               <Link to="/">Home</Link>
-              <a href="#patients">For Patients</a>
+              <Link to="/for-patients">For Patients</Link>
               <a href="#doctors">For Doctors</a>
               <a href="#features">Features</a>
               <a href="#about">About</a>
