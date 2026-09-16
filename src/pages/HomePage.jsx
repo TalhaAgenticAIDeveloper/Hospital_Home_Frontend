@@ -386,7 +386,7 @@ export function HomePage() {
               <Link to="/">Home</Link>
               <Link to="/for-patients">For Patients</Link>
               <Link to="/for-doctors">For Doctors</Link>
-              <a href="#features">Features</a>
+              <Link to="/features">Features</Link>
               <a href="#about">About</a>
             </div>
 

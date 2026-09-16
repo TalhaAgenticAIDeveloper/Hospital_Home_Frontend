@@ -454,7 +454,7 @@ export function ForPatientsPage() {
               <Link to="/">Home</Link>
               <Link to="/for-patients">For Patients</Link>
               <Link to="/for-doctors">For Doctors</Link>
-              <a href="#">Features</a>
+              <Link to="/features">Features</Link>
               <a href="#">About</a>
             </div>
             <div className="hp-footer-social">

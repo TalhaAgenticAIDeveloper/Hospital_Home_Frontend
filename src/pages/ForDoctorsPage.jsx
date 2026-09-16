@@ -667,7 +667,7 @@ export function ForDoctorsPage() {
               <Link to="/">Home</Link>
               <Link to="/for-patients">For Patients</Link>
               <Link to="/for-doctors">For Doctors</Link>
-              <a href="#ai-tools">Features</a>
+              <Link to="/features">Features</Link>
               <a href="#about">About</a>
             </div>
             <div className="hp-footer-social">
