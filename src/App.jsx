@@ -96,10 +96,11 @@ function AppContent() {
         </Routes>
       </main>
 
-      {!isDashboardOrMeeting && (
+      {/* Simple footer for non-dashboard, non-homepage pages (login, signup, etc.) */}
+      {!isDashboardOrMeeting && location.pathname !== '/' && (
         <footer style={{ background: '#ffffff', borderTop: '1px solid var(--border-color)', padding: '1.5rem 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
           <div className="container">
-            © {new Date().getFullYear()} MedTrust SaaS Platform. All medical credentials encrypted and verified.
+            © {new Date().getFullYear()} MediAI. All rights reserved.
           </div>
         </footer>
       )}
