@@ -86,13 +86,12 @@ export function Navbar() {
             >
               For Patients
             </Link>
-            <a
-              href="#doctors"
-              className="nav-link"
-              onClick={(e) => scrollToSection(e, 'doctors')}
+            <Link
+              to="/for-doctors"
+              className={`nav-link ${isActive('/for-doctors') ? 'active' : ''}`}
             >
               For Doctors
-            </a>
+            </Link>
             <a
               href="#features"
               className="nav-link"
@@ -179,7 +178,7 @@ export function Navbar() {
             <div className="mobile-section-links">
               <Link to="/" className="mobile-section-link" onClick={closeMenu}>Home</Link>
               <Link to="/for-patients" className="mobile-section-link" onClick={closeMenu}>For Patients</Link>
-              <a href="#doctors" className="mobile-section-link" onClick={(e) => scrollToSection(e, 'doctors')}>For Doctors</a>
+              <Link to="/for-doctors" className="mobile-section-link" onClick={closeMenu}>For Doctors</Link>
               <a href="#features" className="mobile-section-link" onClick={(e) => scrollToSection(e, 'features')}>Features</a>
               <a href="#about" className="mobile-section-link" onClick={(e) => scrollToSection(e, 'about')}>About</a>
             </div>

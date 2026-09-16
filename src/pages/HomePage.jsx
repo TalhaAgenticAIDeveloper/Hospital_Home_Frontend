@@ -385,7 +385,7 @@ export function HomePage() {
             <div className="hp-footer-links">
               <Link to="/">Home</Link>
               <Link to="/for-patients">For Patients</Link>
-              <a href="#doctors">For Doctors</a>
+              <Link to="/for-doctors">For Doctors</Link>
               <a href="#features">Features</a>
               <a href="#about">About</a>
             </div>

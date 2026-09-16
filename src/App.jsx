@@ -11,6 +11,7 @@ import { AdminLoginPage } from './pages/AdminLoginPage';
 import { DoctorPortalPage } from './pages/DoctorPortalPage';
 import { PatientDashboardPage } from './pages/PatientDashboardPage';
 import { ForPatientsPage } from './pages/ForPatientsPage';
+import { ForDoctorsPage } from './pages/ForDoctorsPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { DoctorReviewPage } from './pages/DoctorReviewPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
@@ -41,6 +42,7 @@ function AppContent() {
           <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/for-patients" element={<ForPatientsPage />} />
+          <Route path="/for-doctors" element={<ForDoctorsPage />} />
 
           {/* Protected Patient Routes */}
           <Route path="/patient/dashboard" element={<Navigate to="/patient/dashboard/book" replace />} />
@@ -99,7 +101,7 @@ function AppContent() {
       </main>
 
       {/* Simple footer for non-dashboard, non-homepage pages (login, signup, etc.) */}
-      {!isDashboardOrMeeting && location.pathname !== '/' && location.pathname !== '/for-patients' && (
+      {!isDashboardOrMeeting && location.pathname !== '/' && location.pathname !== '/for-patients' && location.pathname !== '/for-doctors' && (
         <footer style={{ background: '#ffffff', borderTop: '1px solid var(--border-color)', padding: '1.5rem 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
           <div className="container">
             © {new Date().getFullYear()} MediAI. All rights reserved.
