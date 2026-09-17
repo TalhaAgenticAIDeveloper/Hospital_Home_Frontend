@@ -27,10 +27,10 @@ import {
   Bell,
 } from 'lucide-react';
 
-import heroDoctor from '../assets/hero-doctor.jpg';
-import patientImg from '../assets/patient-illustration.jpg';
-import doctorImg from '../assets/doctor-illustration.jpg';
-import robotImg from '../assets/ai-robot-mascot.jpg';
+import heroDoctor from '../assets/home/hero-doctor.png';
+import patientImg from '../assets/home/patient-illustration.png';
+import doctorImg from '../assets/home/doctor-illustration.png';
+import robotImg from '../assets/home/ai-robot-mascot.png';
 
 export function HomePage() {
   const { isAuthenticated, isDoctor, isPatient, isAdmin } = useAuth();
@@ -387,7 +387,7 @@ export function HomePage() {
               <Link to="/for-patients">For Patients</Link>
               <Link to="/for-doctors">For Doctors</Link>
               <Link to="/features">Features</Link>
-              <a href="#about">About</a>
+              <Link to="/about">About</Link>
             </div>
 
             {/* Social Icons */}

@@ -98,13 +98,12 @@ export function Navbar() {
             >
               Features
             </Link>
-            <a
-              href="#about"
-              className="nav-link"
-              onClick={(e) => scrollToSection(e, 'about')}
+            <Link
+              to="/about"
+              className={`nav-link ${isActive('/about') ? 'active' : ''}`}
             >
               About
-            </a>
+            </Link>
           </div>
 
           {/* Right Auth Actions */}
@@ -179,7 +178,7 @@ export function Navbar() {
               <Link to="/for-patients" className="mobile-section-link" onClick={closeMenu}>For Patients</Link>
               <Link to="/for-doctors" className="mobile-section-link" onClick={closeMenu}>For Doctors</Link>
               <Link to="/features" className="mobile-section-link" onClick={closeMenu}>Features</Link>
-              <a href="#about" className="mobile-section-link" onClick={(e) => scrollToSection(e, 'about')}>About</a>
+              <Link to="/about" className="mobile-section-link" onClick={closeMenu}>About</Link>
             </div>
 
             <div style={{ height: '1px', background: 'var(--border-color)', margin: '0.5rem 0' }} />
