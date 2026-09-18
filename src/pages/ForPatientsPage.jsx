@@ -1,16 +1,13 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowRight,
   Heart,
   CalendarCheck,
-  Search,
   Stethoscope,
   FileText,
-  ClipboardList,
   Pill,
-  Bell,
   Star,
   Check,
   Upload,
@@ -21,59 +18,73 @@ import {
   HeartPulse,
   Video,
   MessageCircle,
-  Clock,
-  Eye,
-  ChevronRight,
-  CircleArrowRight,
   Bot,
+  Bell,
+  Shield,
+  Clock,
+  Users,
+  ChevronRight,
+  Zap,
+  Search,
+  Brain,
+  Utensils,
+  Activity,
+  BadgeCheck,
+  Smartphone,
 } from 'lucide-react';
 
-import patientHero from '../assets/patient-hero.jpg';
-import doctorAvatar1 from '../assets/doctor-avatar-1.jpg';
-import doctorAvatar2 from '../assets/doctor-avatar-2.jpg';
-import doctorAvatar3 from '../assets/doctor-avatar-3.jpg';
-import consultationImg from '../assets/consultation-illustration.jpg';
+/* ── Patient Feature Images ─────────────────────────────────────────────── */
+import heroImg from '../assets/patient/PMDC verified Doctors.png';
+import doctorProfileImg from '../assets/patient/Patient visiting Doctor profile.png';
+import videoConsultImg from '../assets/patient/Patient doctor meeting.png';
+import aiReportImg from '../assets/patient/Patient getting report analysis.png';
+import dietPlanImg from '../assets/patient/Diet plan discussion.png';
+import notificationImg from '../assets/patient/patient got notification.png';
 import robotImg from '../assets/ai-robot-mascot.jpg';
 
-/* ── Static Mock Data ──────────────────────────────────────────────────── */
-const MOCK_DOCTORS = [
-  { id: 1, name: 'Dr. Sarah Khan', specialty: 'General Physician', rating: 4.8, reviews: '2.3k', avatar: doctorAvatar1 },
-  { id: 2, name: 'Dr. Asad Raza', specialty: 'Cardiologist', rating: 4.9, reviews: '1.8k', avatar: doctorAvatar2 },
-  { id: 3, name: 'Dr. Ayesha Malik', specialty: 'Dermatologist', rating: 4.7, reviews: '1.2k', avatar: doctorAvatar3 },
+/* ── Static Data ────────────────────────────────────────────────────────── */
+const STATS = [
+  { value: '500+', label: 'Verified Doctors', icon: BadgeCheck },
+  { value: '24/7', label: 'AI Health Assistant', icon: Bot },
+  { value: '50k+', label: 'Reports Analyzed', icon: FileText },
+  { value: '99.9%', label: 'Uptime & Security', icon: Shield },
 ];
 
-const SPECIALTIES = ['All', 'General Physician', 'Cardiologist', 'Dermatologist', 'Gynecologist'];
-
-const MOCK_ACTIVITY = [
-  { id: 1, icon: CalendarCheck, title: 'Appointment Completed', desc: 'Dr. Sarah Khan • General Physician', time: 'Today, 10:30 AM', status: 'Completed', statusColor: '#10b981' },
-  { id: 2, icon: FileText, title: 'Lab Report Analysis', desc: 'CBC Report • Explained by AI', time: 'Yesterday, 4:20 PM', status: 'View', statusColor: '#2563eb' },
-  { id: 3, icon: ClipboardList, title: 'Meal Plan Updated', desc: 'Weight Gain Plan • 7 Day Plan', time: 'Yesterday, 11:15 AM', status: 'Updated', statusColor: '#f59e0b' },
-  { id: 4, icon: Pill, title: 'Prescription Reminder', desc: 'Metformin 500mg • 2 times daily', time: 'Yesterday, 9:00 AM', status: 'Upcoming', statusColor: '#8b5cf6' },
+const HOW_IT_WORKS = [
+  {
+    step: '01',
+    icon: Search,
+    title: 'Find Your Doctor',
+    desc: 'Browse PMDC-verified specialists, check ratings, read patient reviews, and pick the perfect time slot.',
+    color: '#2563eb',
+  },
+  {
+    step: '02',
+    icon: Video,
+    title: 'Consult via HD Video',
+    desc: 'Connect instantly with your doctor from home. No downloads needed — just one click from your browser.',
+    color: '#7c3aed',
+  },
+  {
+    step: '03',
+    icon: Sparkles,
+    title: 'Get AI Insights & Plans',
+    desc: 'Upload lab reports for AI explanations, get personalized diet & fitness plans, and never miss your medication.',
+    color: '#059669',
+  },
 ];
 
-const AI_QUESTIONS = [
-  'What does my lab report mean?',
-  'What foods should I eat for weight gain?',
-  'Can you replace this meal? (I\'m allergic)',
-  'Remind me about my medication time',
-  'I have a follow-up question about my report',
+const FEATURES_MINI = [
+  { icon: CalendarCheck, label: 'Book Appointments', color: '#2563eb' },
+  { icon: Video, label: 'HD Video Calls', color: '#7c3aed' },
+  { icon: Bot, label: 'AI Report Analysis', color: '#0284c7' },
+  { icon: Utensils, label: 'Custom Diet Plans', color: '#059669' },
+  { icon: Pill, label: 'E-Prescriptions', color: '#ea580c' },
+  { icon: Bell, label: 'Smart Reminders', color: '#d946ef' },
 ];
 
 export function ForPatientsPage() {
   const { user } = useAuth();
-  const [activeSpecialty, setActiveSpecialty] = useState('All');
-
-  // Extract first name from email or name for greeting, default to Ahmed matching mockup
-  const userName = user?.name || user?.email?.split('@')[0] || 'Ahmed';
-  const displayName = userName.charAt(0).toUpperCase() + userName.slice(1);
-
-  // Get greeting based on time of day
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  };
 
   return (
     <div className="fp-page">
@@ -82,70 +93,62 @@ export function ForPatientsPage() {
           SECTION 1 — HERO
       ══════════════════════════════════════════════════════════════════ */}
       <section className="fp-hero">
-        <div className="fp-hero-bg-dots" />
-        <div className="fp-hero-bg-wave" />
+        <div className="fp-hero-bg-orb fp-hero-bg-orb-1" />
+        <div className="fp-hero-bg-orb fp-hero-bg-orb-2" />
+        <div className="fp-hero-bg-grid" />
 
         <div className="container fp-hero-grid">
           {/* Left — Text */}
           <div className="fp-hero-text">
-            <span className="hp-eyebrow">WELCOME BACK,</span>
+            <span className="fp-hero-eyebrow">
+              <HeartPulse size={14} />
+              FOR PATIENTS
+            </span>
             <h1 className="fp-hero-title">
-              Your Health Journey<br />
-              <span className="fp-hero-title-accent">Starts Here</span>
+              Healthcare That<br />
+              <span className="fp-hero-title-accent">Revolves Around You</span>
             </h1>
             <p className="fp-hero-subtitle">
-              Book appointments, get AI-powered health insights, track your progress and achieve your goals — all in one place.
+              Find top specialists, consult via HD video, get AI-powered lab report analysis,
+              personalized health plans, and smart medication reminders — all in one place.
             </p>
 
-            {/* Appointment Search Bar */}
-            <Link to="/patient/dashboard/book" className="fp-search-bar">
-              <div className="fp-search-icon">
+            <div className="fp-hero-actions">
+              <Link to="/patient/dashboard/book" className="fp-hero-btn fp-hero-btn-primary">
                 <CalendarCheck size={18} />
-              </div>
-              <div className="fp-search-text">
-                <span className="fp-search-title">Book an Appointment</span>
-                <span className="fp-search-desc">Find the right doctor, at the right time</span>
-              </div>
-              <div className="fp-search-dot" />
-            </Link>
-          </div>
-
-          {/* Right — Hero Image + Floating Cards */}
-          <div className="fp-hero-visual">
-            <div className="fp-hero-img-wrap">
-              <img src={patientHero} alt="Patient using health app" className="fp-hero-img" />
-
-              {/* Floating Heart Badge */}
-              <div className="fp-floating-heart">
-                <Heart size={16} fill="#fff" />
-                <span>Your health<br />matters</span>
-              </div>
-
-              {/* Speech Bubble */}
-              <div className="fp-speech-bubble">
-                Stay healthy,<br />Stay happy!
-              </div>
+                Book an Appointment
+                <ArrowRight size={16} />
+              </Link>
+              <Link to="/patient/dashboard/reports" className="fp-hero-btn fp-hero-btn-outline">
+                <Sparkles size={18} />
+                Try AI Report Analysis
+              </Link>
             </div>
 
-            {/* Floating Greeting Card */}
-            <div className="fp-greeting-card">
-              <div className="fp-greeting-header">
-                <span>{getGreeting()},</span>
-                <span className="fp-greeting-name">{displayName}! ☀️</span>
-              </div>
-              <div className="fp-health-score">
-                <span className="fp-health-label">Health Score</span>
-                <div className="fp-score-circle">
-                  <svg viewBox="0 0 80 80">
-                    <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="6" />
-                    <circle cx="40" cy="40" r="34" fill="none" stroke="#2563eb" strokeWidth="6"
-                      strokeDasharray="213.6" strokeDashoffset="47" strokeLinecap="round"
-                      transform="rotate(-90 40 40)" />
-                  </svg>
-                  <span className="fp-score-value">78%</span>
+            {/* Mini Feature Pills */}
+            <div className="fp-hero-pills">
+              {FEATURES_MINI.map((f) => (
+                <div key={f.label} className="fp-hero-pill">
+                  <f.icon size={14} style={{ color: f.color }} />
+                  <span>{f.label}</span>
                 </div>
-                <span className="fp-score-status">Good</span>
-                <span className="fp-score-tip">Keep going! 🚀</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Right — Hero Image */}
+          <div className="fp-hero-visual">
+            <div className="fp-hero-img-wrap">
+              <img src={heroImg} alt="Patient booking doctor appointment on tablet" className="fp-hero-img" />
+              {/* Floating Badge: Verified */}
+              <div className="fp-hero-float fp-hero-float-verified">
+                <BadgeCheck size={16} />
+                <span>PMDC Verified<br />Doctors</span>
+              </div>
+              {/* Floating Badge: AI */}
+              <div className="fp-hero-float fp-hero-float-ai">
+                <Bot size={16} />
+                <span>24/7 AI<br />Assistant</span>
               </div>
             </div>
           </div>
@@ -153,188 +156,256 @@ export function ForPatientsPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
-          SECTION 2 — QUICK ACTIONS
+          SECTION 2 — TRUST STATS BAR
       ══════════════════════════════════════════════════════════════════ */}
-      <section className="fp-quick-actions">
+      <section className="fp-stats">
         <div className="container">
-          <div className="fp-qa-grid">
-            {[
-              { icon: CalendarCheck, title: 'Book Appointments', desc: 'Schedule with trusted doctors, anytime.', link: '/patient/dashboard/book', color: '#2563eb' },
-              { icon: FileText, title: 'Upload Lab Reports', desc: 'Get AI explanations in simple language.', link: '/patient/dashboard/reports', color: '#0284c7' },
-              { icon: ClipboardList, title: 'Personalized Plans', desc: 'AI built diet, fitness & health plans for your goals.', link: '/patient/dashboard/reports', color: '#7c3aed' },
-              { icon: Pill, title: 'Your Prescriptions', desc: 'View & manage your medications and reminders.', link: '/patient/dashboard/prescriptions', color: '#059669' },
-              { icon: Bell, title: 'Notifications', desc: 'Stay updated on your appointments & health.', link: '/patient/dashboard/appointments', color: '#ea580c' },
-            ].map((item) => (
-              <Link to={item.link} key={item.title} className="fp-qa-card">
-                <div className="fp-qa-icon" style={{ background: `${item.color}10`, color: item.color }}>
-                  <item.icon size={24} />
+          <div className="fp-stats-grid">
+            {STATS.map((s) => (
+              <div key={s.label} className="fp-stat-item">
+                <div className="fp-stat-icon">
+                  <s.icon size={22} />
                 </div>
-                <h3>{item.title}</h3>
-                <p>{item.desc}</p>
-                <div className="fp-qa-arrow" style={{ color: item.color }}>
-                  <CircleArrowRight size={20} />
+                <div>
+                  <span className="fp-stat-value">{s.value}</span>
+                  <span className="fp-stat-label">{s.label}</span>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
-          SECTION 3 — BOOK APPOINTMENTS
+          SECTION 3 — FEATURE SHOWCASE (Zig-Zag)
       ══════════════════════════════════════════════════════════════════ */}
-      <section className="fp-booking">
-        <div className="container">
-          <div className="fp-booking-grid">
-            {/* Left — Doctor Cards */}
-            <div className="fp-booking-left">
-              <div className="fp-booking-header">
-                <div>
-                  <h2 className="fp-booking-title">
-                    <Stethoscope size={24} className="fp-booking-title-icon" />
-                    Book Appointments
-                  </h2>
-                  <p className="fp-booking-desc">Consult with top doctors, in-person or online.</p>
-                </div>
-              </div>
 
-              {/* Specialty Tabs */}
-              <div className="fp-specialty-tabs">
-                {SPECIALTIES.map((spec) => (
-                  <button
-                    key={spec}
-                    className={`fp-specialty-tab ${activeSpecialty === spec ? 'active' : ''}`}
-                    onClick={() => setActiveSpecialty(spec)}
-                  >
-                    {spec}
-                  </button>
-                ))}
-              </div>
-
-              {/* Recommended Doctors */}
-              <div className="fp-doctors-header">
-                <span className="fp-doctors-label">Recommended Doctors</span>
-                <Link to="/patient/dashboard/book" className="fp-view-all">View All <ArrowRight size={14} /></Link>
-              </div>
-
-              <div className="fp-doctors-grid">
-                {MOCK_DOCTORS.map((doc) => (
-                  <div key={doc.id} className="fp-doctor-card">
-                    <img src={doc.avatar} alt={doc.name} className="fp-doctor-avatar" />
-                    <h4 className="fp-doctor-name">{doc.name}</h4>
-                    <p className="fp-doctor-specialty">{doc.specialty}</p>
-                    <div className="fp-doctor-rating">
-                      <Star size={14} fill="#f59e0b" color="#f59e0b" />
-                      <span className="fp-doctor-score">{doc.rating}</span>
-                      <span className="fp-doctor-reviews">({doc.reviews} reviews)</span>
-                    </div>
-                    <Link to="/patient/dashboard/book" className="fp-doctor-book-btn">Book Now</Link>
-                  </div>
-                ))}
-              </div>
+      {/* ── Feature 1: Smart Doctor Search & Booking ── */}
+      <section className="fp-feature" id="fp-booking">
+        <div className="container fp-feature-grid">
+          <div className="fp-feature-img-wrap">
+            <img src={doctorProfileImg} alt="Patient browsing doctor profiles on tablet" className="fp-feature-img" />
+            <div className="fp-feature-img-glow fp-feature-img-glow-blue" />
+          </div>
+          <div className="fp-feature-content">
+            <div className="fp-feature-badge" style={{ background: '#eff6ff', color: '#2563eb' }}>
+              <Stethoscope size={16} />
+              <span>Smart Booking</span>
             </div>
+            <h2 className="fp-feature-title">
+              Find the Perfect Doctor,<br />
+              <span style={{ color: '#2563eb' }}>Book in Seconds</span>
+            </h2>
+            <p className="fp-feature-desc">
+              Browse through our network of PMDC-verified specialists. Read real patient reviews,
+              check ratings, compare consultation fees, and pick the time slot that works for you.
+              Your perfect doctor is just one click away.
+            </p>
+            <ul className="fp-feature-list">
+              <li><Check size={16} /> <span>PMDC-verified specialist doctors across 20+ fields</span></li>
+              <li><Check size={16} /> <span>Real patient reviews & transparent ratings</span></li>
+              <li><Check size={16} /> <span>Instant slot selection — no phone calls needed</span></li>
+              <li><Check size={16} /> <span>Attach your medical records before the visit</span></li>
+            </ul>
+            <Link to="/patient/dashboard/book" className="fp-feature-cta">
+              Find Doctors <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </section>
 
-            {/* Right — Illustration */}
-            <div className="fp-booking-right">
-              <div className="fp-booking-badges">
-                <span className="fp-booking-badge">Quick • Easy • Secure</span>
-                <span className="fp-booking-badge fp-booking-badge-accent">
-                  <Video size={14} /> Video or In-Person Appointments
-                </span>
-              </div>
-              <img src={consultationImg} alt="Video consultation" className="fp-booking-illustration" />
+      {/* ── Feature 2: HD Video Consultations ── */}
+      <section className="fp-feature fp-feature-reverse fp-feature-alt" id="fp-video">
+        <div className="container fp-feature-grid">
+          <div className="fp-feature-img-wrap">
+            <img src={videoConsultImg} alt="Patient on video call with doctor" className="fp-feature-img" />
+            <div className="fp-feature-img-glow fp-feature-img-glow-purple" />
+          </div>
+          <div className="fp-feature-content">
+            <div className="fp-feature-badge" style={{ background: '#f3e8ff', color: '#7c3aed' }}>
+              <Video size={16} />
+              <span>Telemedicine</span>
             </div>
+            <h2 className="fp-feature-title">
+              See Your Doctor<br />
+              <span style={{ color: '#7c3aed' }}>From the Comfort of Home</span>
+            </h2>
+            <p className="fp-feature-desc">
+              No more waiting rooms. Connect with your doctor through encrypted, crystal-clear
+              HD video — right from your browser. During the call, chat live, share your reports
+              on-screen, and receive your digital prescription instantly.
+            </p>
+            <ul className="fp-feature-list">
+              <li><Check size={16} /> <span>Zero downloads — works directly in your browser</span></li>
+              <li><Check size={16} /> <span>End-to-end encrypted video for your privacy</span></li>
+              <li><Check size={16} /> <span>Live chat & on-screen report sharing during call</span></li>
+              <li><Check size={16} /> <span>Instant digital prescription after consultation</span></li>
+            </ul>
+            <Link to="/patient/dashboard/book" className="fp-feature-cta fp-feature-cta-purple">
+              Book a Video Visit <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Feature 3: AI Lab Report Explainer ── */}
+      <section className="fp-feature" id="fp-ai-reports">
+        <div className="container fp-feature-grid">
+          <div className="fp-feature-img-wrap">
+            <img src={aiReportImg} alt="AI robot analyzing patient lab report" className="fp-feature-img" />
+            <div className="fp-feature-img-glow fp-feature-img-glow-cyan" />
+          </div>
+          <div className="fp-feature-content">
+            <div className="fp-feature-badge" style={{ background: '#ecfeff', color: '#0891b2' }}>
+              <Brain size={16} />
+              <span>AI-Powered</span>
+            </div>
+            <h2 className="fp-feature-title">
+              Your Lab Reports,<br />
+              <span style={{ color: '#0891b2' }}>Explained in Simple Words</span>
+            </h2>
+            <p className="fp-feature-desc">
+              Confused by medical jargon? Just upload your lab report and our AI Medical
+              Assistant will break it down in plain language. It highlights what's normal,
+              what needs attention, suggests dietary changes, and lets you ask unlimited
+              follow-up questions — like having a doctor available 24/7.
+            </p>
+            <ul className="fp-feature-list">
+              <li><Check size={16} /> <span>Upload PDF, JPG, or PNG — AI reads it in seconds</span></li>
+              <li><Check size={16} /> <span>Clear Normal / Abnormal indicators for every test</span></li>
+              <li><Check size={16} /> <span>Personalized health tips based on your results</span></li>
+              <li><Check size={16} /> <span>Unlimited follow-up questions via AI chat</span></li>
+            </ul>
+            <Link to="/patient/dashboard/reports" className="fp-feature-cta fp-feature-cta-cyan">
+              Try AI Report Analysis <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Feature 4: Personalized Health Plans ── */}
+      <section className="fp-feature fp-feature-reverse fp-feature-alt" id="fp-plans">
+        <div className="container fp-feature-grid">
+          <div className="fp-feature-img-wrap">
+            <img src={dietPlanImg} alt="Patient customizing diet plan with AI assistant" className="fp-feature-img" />
+            <div className="fp-feature-img-glow fp-feature-img-glow-green" />
+          </div>
+          <div className="fp-feature-content">
+            <div className="fp-feature-badge" style={{ background: '#ecfdf5', color: '#059669' }}>
+              <Utensils size={16} />
+              <span>Personalized Plans</span>
+            </div>
+            <h2 className="fp-feature-title">
+              Your Diet & Fitness Plan,<br />
+              <span style={{ color: '#059669' }}>Built Around Your Preferences</span>
+            </h2>
+            <p className="fp-feature-desc">
+              Tell our AI your goal — gain weight, lose weight, build muscle, or just eat healthier.
+              Don't like eggs? No problem! Our AI nutritionist listens to your preferences and
+              allergies, swaps items in real-time, and creates a plan that fits YOUR life, not the
+              other way around.
+            </p>
+            <ul className="fp-feature-list">
+              <li><Check size={16} /> <span>Custom meal plans based on your goals & taste</span></li>
+              <li><Check size={16} /> <span>Real-time food swaps for allergies & preferences</span></li>
+              <li><Check size={16} /> <span>Workout routines tailored to your fitness level</span></li>
+              <li><Check size={16} /> <span>Daily macro & calorie targets tracked for you</span></li>
+            </ul>
+            <Link to="/patient/dashboard/reports" className="fp-feature-cta fp-feature-cta-green">
+              Create My Plan <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Feature 5: Smart Medication Reminders ── */}
+      <section className="fp-feature" id="fp-reminders">
+        <div className="container fp-feature-grid">
+          <div className="fp-feature-img-wrap">
+            <img src={notificationImg} alt="Patient receiving medication reminder notification" className="fp-feature-img" />
+            <div className="fp-feature-img-glow fp-feature-img-glow-orange" />
+          </div>
+          <div className="fp-feature-content">
+            <div className="fp-feature-badge" style={{ background: '#fff7ed', color: '#ea580c' }}>
+              <Bell size={16} />
+              <span>Smart Reminders</span>
+            </div>
+            <h2 className="fp-feature-title">
+              Never Miss Your Medicine,<br />
+              <span style={{ color: '#ea580c' }}>Even on Your Busiest Days</span>
+            </h2>
+            <p className="fp-feature-desc">
+              Life gets busy — but your health can't wait. MediAI sends you timely push notifications
+              to take your medicine, reminds you about meals, and keeps your treatment on track. Whether
+              you're at work, commuting, or anywhere — we've got your back.
+            </p>
+            <ul className="fp-feature-list">
+              <li><Check size={16} /> <span>Automatic reminders synced with your prescription</span></li>
+              <li><Check size={16} /> <span>Meal-aware timing — "take after lunch" reminders</span></li>
+              <li><Check size={16} /> <span>One-tap "Mark as Taken" confirmation</span></li>
+              <li><Check size={16} /> <span>Track your medication adherence over time</span></li>
+            </ul>
+            <Link to="/patient/dashboard/prescriptions" className="fp-feature-cta fp-feature-cta-orange">
+              View Prescriptions <ArrowRight size={16} />
+            </Link>
           </div>
         </div>
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
-          SECTION 4 — AI FEATURES
+          SECTION 4 — HOW IT WORKS
       ══════════════════════════════════════════════════════════════════ */}
-      <section className="fp-ai-features">
+      <section className="fp-how-it-works">
         <div className="container">
-          <div className="fp-ai-grid">
-            {/* AI Lab Report Analysis */}
-            <div className="fp-ai-card">
-              <div className="fp-ai-card-header">
-                <div className="fp-ai-card-icon">
-                  <Bot size={20} />
+          <div className="fp-section-header">
+            <span className="fp-section-eyebrow">
+              <Zap size={14} />
+              SIMPLE & EASY
+            </span>
+            <h2 className="fp-section-title">How It Works</h2>
+            <p className="fp-section-desc">Getting started takes less than 2 minutes. Here's how.</p>
+          </div>
+          <div className="fp-hiw-grid">
+            {HOW_IT_WORKS.map((item, i) => (
+              <div key={item.step} className="fp-hiw-card">
+                <div className="fp-hiw-step" style={{ color: item.color }}>{item.step}</div>
+                <div className="fp-hiw-icon" style={{ background: `${item.color}10`, color: item.color }}>
+                  <item.icon size={26} />
                 </div>
-                <div>
-                  <h3>AI Lab Report Analysis</h3>
-                  <p>Upload your lab reports and get easy-to-understand explanations, with follow-up questions.</p>
-                </div>
+                <h3>{item.title}</h3>
+                <p>{item.desc}</p>
+                {i < HOW_IT_WORKS.length - 1 && <div className="fp-hiw-connector" />}
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-              <div className="fp-ai-card-body">
-                {/* Upload Area */}
-                <div className="fp-upload-area">
-                  <Upload size={28} className="fp-upload-icon" />
-                  <p>Drag & drop your lab report here<br /><span>or</span></p>
-                  <Link to="/patient/dashboard/reports" className="fp-upload-btn">Upload File</Link>
-                  <span className="fp-upload-hint">Supported formats: PDF, JPG, PNG (Max 10MB)</span>
-                </div>
-
-                {/* AI Explain Card */}
-                <div className="fp-explain-card">
-                  <h4><Sparkles size={16} /> AI Will Explain In Simple Words</h4>
-                  <ul className="hp-check-list hp-check-list-compact">
-                    <li><Check size={14} /> Normal / Abnormal results</li>
-                    <li><Check size={14} /> What it means for your health</li>
-                    <li><Check size={14} /> Diet & lifestyle suggestions</li>
-                    <li><Check size={14} /> Follow-up questions</li>
-                  </ul>
-                  <div className="fp-explain-tip">
-                    <MessageCircle size={14} />
-                    <span>You can also ask me anything about your report!</span>
-                  </div>
-                </div>
+      {/* ══════════════════════════════════════════════════════════════════
+          SECTION 5 — CTA BANNER
+      ══════════════════════════════════════════════════════════════════ */}
+      <section className="fp-final-cta">
+        <div className="container">
+          <div className="fp-final-cta-inner">
+            <div className="fp-final-cta-glow" />
+            <div className="fp-final-cta-content">
+              <div className="fp-final-cta-robot">
+                <img src={robotImg} alt="AI Health Assistant" />
               </div>
-            </div>
-
-            {/* Personalized Health Plans */}
-            <div className="fp-ai-card">
-              <div className="fp-ai-card-header">
-                <div className="fp-ai-card-icon fp-ai-card-icon-purple">
-                  <HeartPulse size={20} />
-                </div>
-                <div>
-                  <h3>Personalized Health Plans</h3>
-                  <p>Set your goal, and let AI create a custom plan just for you.</p>
-                </div>
+              <div className="fp-final-cta-text">
+                <h2>Ready to Take Control of Your Health?</h2>
+                <p>
+                  Join thousands of patients who trust MediAI for their healthcare needs.
+                  Book your first consultation, try our AI report analyzer, or create your personalized health plan — all for free.
+                </p>
               </div>
-
-              <div className="fp-ai-card-body">
-                {/* Goal Icons */}
-                <div className="fp-goals-grid">
-                  {[
-                    { icon: TrendingUp, label: 'Gain Weight', color: '#2563eb' },
-                    { icon: Apple, label: 'Lose Weight', color: '#10b981' },
-                    { icon: Dumbbell, label: 'Build Muscle', color: '#7c3aed' },
-                    { icon: Heart, label: 'Better Health', color: '#ef4444' },
-                  ].map((goal) => (
-                    <div key={goal.label} className="fp-goal-item">
-                      <div className="fp-goal-icon" style={{ background: `${goal.color}10`, color: goal.color }}>
-                        <goal.icon size={20} />
-                      </div>
-                      <span>{goal.label}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <Link to="/patient/dashboard/reports" className="btn btn-primary" style={{ borderRadius: 10, width: '100%', marginTop: '0.5rem' }}>
-                  Create My Plan <ArrowRight size={16} />
+              <div className="fp-final-cta-actions">
+                <Link to="/signup" className="fp-hero-btn fp-hero-btn-primary">
+                  Get Started Free <ArrowRight size={16} />
                 </Link>
-
-                {/* Mini Plan Card */}
-                <div className="fp-plan-preview">
-                  <h4>Your Plan</h4>
-                  <ul>
-                    <li><Check size={13} /> Meal Plan</li>
-                    <li><Check size={13} /> Workout Plan</li>
-                    <li><Check size={13} /> Daily Reminders</li>
-                  </ul>
-                </div>
+                <Link to="/patient/dashboard/book" className="fp-hero-btn fp-hero-btn-outline-white">
+                  Book a Doctor <CalendarCheck size={16} />
+                </Link>
               </div>
             </div>
           </div>
@@ -342,99 +413,7 @@ export function ForPatientsPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════════════════════
-          SECTION 5 — RECENT ACTIVITY + AI ASSISTANT
-      ══════════════════════════════════════════════════════════════════ */}
-      <section className="fp-activity-section">
-        <div className="container">
-          <div className="fp-activity-grid">
-            {/* Left — Recent Activity */}
-            <div className="fp-activity-card">
-              <div className="fp-activity-header">
-                <div className="fp-activity-header-left">
-                  <Clock size={18} />
-                  <h3>Your Recent Activity</h3>
-                </div>
-                <Link to="/patient/dashboard/appointments" className="fp-view-all">View All <ArrowRight size={14} /></Link>
-              </div>
-
-              <div className="fp-activity-list">
-                {MOCK_ACTIVITY.map((item) => (
-                  <div key={item.id} className="fp-activity-item">
-                    <div className="fp-activity-icon">
-                      <item.icon size={18} />
-                    </div>
-                    <div className="fp-activity-info">
-                      <span className="fp-activity-title">{item.title}</span>
-                      <span className="fp-activity-desc">{item.desc}</span>
-                    </div>
-                    <div className="fp-activity-meta">
-                      <span className="fp-activity-time">{item.time}</span>
-                      <span className="fp-activity-status" style={{ color: item.statusColor, background: `${item.statusColor}12` }}>
-                        {item.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Right — AI Assistant */}
-            <div className="fp-assistant-card">
-              <div className="fp-assistant-header">
-                <h3>Your AI Health Assistant</h3>
-                <p>Ask anything about your health, reports, plans or medications.</p>
-              </div>
-
-              {/* Suggested Questions */}
-              <div className="fp-assistant-questions">
-                {AI_QUESTIONS.map((q, i) => (
-                  <div key={i} className="fp-assistant-q">
-                    <div className="fp-assistant-q-dot" />
-                    <span>{q}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Chat Input */}
-              <div className="fp-assistant-input">
-                <input type="text" placeholder="Type your question here..." readOnly />
-                <button className="fp-assistant-send" aria-label="Send">
-                  <ArrowRight size={16} />
-                </button>
-              </div>
-
-              {/* Robot Image */}
-              <div className="fp-assistant-robot">
-                <div className="fp-assistant-bubble">
-                  <span>Hi! I'm your<br /><strong>AI Health Assistant.</strong><br />How can I help you today?</span>
-                </div>
-                <img src={robotImg} alt="AI Assistant" className="fp-assistant-robot-img" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          SECTION 6 — CTA BANNER
-      ══════════════════════════════════════════════════════════════════ */}
-      <section className="fp-cta-banner">
-        <div className="container fp-cta-banner-inner">
-          <div className="fp-cta-banner-icon">
-            <HeartPulse size={28} />
-          </div>
-          <div className="fp-cta-banner-text">
-            <h2>Better Health. Brighter Future.</h2>
-            <p>With MediAI, you're never alone in your health journey.</p>
-          </div>
-          <Link to="/patient/dashboard/book" className="btn btn-secondary btn-lg fp-cta-banner-btn">
-            Explore Features <ArrowRight size={18} />
-          </Link>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          SECTION 7 — FOOTER
+          FOOTER
       ══════════════════════════════════════════════════════════════════ */}
       <footer className="hp-footer">
         <div className="container">
