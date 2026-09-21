@@ -33,9 +33,9 @@ import {
   Eye,
 } from 'lucide-react';
 
-import featuresHeroImg from '../assets/features-hero.jpg';
-import robotImg from '../assets/ai-robot-mascot.jpg';
-import doctorMaleImg from '../assets/doctor-male-hero.jpg';
+import featuresHeroImg from '../assets/features-hero.webp';
+import robotImg from '../assets/ai-robot-mascot.webp';
+import doctorMaleImg from '../assets/doctor-male-hero.webp';
 
 /* ── Interactive Demo Samples ────────────────────────────────────────────── */
 const SAMPLE_REPORTS = [

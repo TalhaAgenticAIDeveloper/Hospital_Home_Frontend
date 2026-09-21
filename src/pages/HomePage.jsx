@@ -27,10 +27,10 @@ import {
   Bell,
 } from 'lucide-react';
 
-import heroDoctor from '../assets/home/hero-doctor.png';
-import patientImg from '../assets/home/patient-illustration.png';
-import doctorImg from '../assets/home/doctor-illustration.png';
-import robotImg from '../assets/home/ai-robot-mascot.png';
+import heroDoctor from '../assets/home/hero-doctor.webp';
+import patientImg from '../assets/home/patient-illustration.webp';
+import doctorImg from '../assets/home/doctor-illustration.webp';
+import robotImg from '../assets/home/ai-robot-mascot.webp';
 
 export function HomePage() {
   const { isAuthenticated, isDoctor, isPatient, isAdmin } = useAuth();

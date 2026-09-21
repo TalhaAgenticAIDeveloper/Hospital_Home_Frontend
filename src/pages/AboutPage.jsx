@@ -22,11 +22,11 @@ import {
   Zap,
 } from 'lucide-react';
 
-import aboutTeamImg from '../assets/about-team.jpg';
-import doctorMaleImg from '../assets/doctor-male-hero.jpg';
-import doctorAvatar1 from '../assets/doctor-avatar-1.jpg';
-import doctorAvatar2 from '../assets/doctor-avatar-2.jpg';
-import doctorAvatar3 from '../assets/doctor-avatar-3.jpg';
+import aboutTeamImg from '../assets/about-team.webp';
+import doctorMaleImg from '../assets/doctor-male-hero.webp';
+import doctorAvatar1 from '../assets/doctor-avatar-1.webp';
+import doctorAvatar2 from '../assets/doctor-avatar-2.webp';
+import doctorAvatar3 from '../assets/doctor-avatar-3.webp';
 
 /* ── Leadership Team Data ────────────────────────────────────────────────── */
 const TEAM_MEMBERS = [

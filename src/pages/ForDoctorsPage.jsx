@@ -35,11 +35,11 @@ import {
   ThumbsUp,
 } from 'lucide-react';
 
-import doctorHeroImg from '../assets/doctor-male-hero.jpg';
-import robotImg from '../assets/ai-robot-mascot.jpg';
-import doctorAvatar1 from '../assets/doctor-avatar-1.jpg';
-import doctorAvatar2 from '../assets/doctor-avatar-2.jpg';
-import doctorAvatar3 from '../assets/doctor-avatar-3.jpg';
+import doctorHeroImg from '../assets/doctor-male-hero.webp';
+import robotImg from '../assets/ai-robot-mascot.webp';
+import doctorAvatar1 from '../assets/doctor-avatar-1.webp';
+import doctorAvatar2 from '../assets/doctor-avatar-2.webp';
+import doctorAvatar3 from '../assets/doctor-avatar-3.webp';
 
 /* ── Mock Data matching the design ────────────────────────────────────────── */
 const APPOINTMENTS = [

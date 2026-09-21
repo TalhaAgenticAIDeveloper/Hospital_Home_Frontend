@@ -34,13 +34,13 @@ import {
 } from 'lucide-react';
 
 /* ── Patient Feature Images ─────────────────────────────────────────────── */
-import heroImg from '../assets/patient/PMDC verified Doctors.png';
-import doctorProfileImg from '../assets/patient/Patient visiting Doctor profile.png';
-import videoConsultImg from '../assets/patient/Patient doctor meeting.png';
-import aiReportImg from '../assets/patient/Patient getting report analysis.png';
-import dietPlanImg from '../assets/patient/Diet plan discussion.png';
-import notificationImg from '../assets/patient/patient got notification.png';
-import robotImg from '../assets/ai-robot-mascot.jpg';
+import heroImg from '../assets/patient/PMDC verified Doctors.webp';
+import doctorProfileImg from '../assets/patient/Patient visiting Doctor profile.webp';
+import videoConsultImg from '../assets/patient/Patient doctor meeting.webp';
+import aiReportImg from '../assets/patient/Patient getting report analysis.webp';
+import dietPlanImg from '../assets/patient/Diet plan discussion.webp';
+import notificationImg from '../assets/patient/patient got notification.webp';
+import robotImg from '../assets/ai-robot-mascot.webp';
 
 /* ── Static Data ────────────────────────────────────────────────────────── */
 const STATS = [
