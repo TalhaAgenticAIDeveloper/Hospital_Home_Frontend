@@ -160,7 +160,13 @@ export function PlanMaker() {
   // Handler: Cancel Plan
   const handleCancelPlan = async () => {
     if (!currentPlan) return;
-    if (!window.confirm('Are you sure you want to cancel this plan?')) return;
+    if (
+      !window.confirm(
+        'Are you sure you want to cancel this plan? This will completely wipe your plan, schedule, and discussions from the database so you can start a fresh plan.'
+      )
+    ) {
+      return;
+    }
     setIsActionLoading(true);
     try {
       await patientPlanApi.cancelPlan(currentPlan.id);
@@ -205,12 +211,30 @@ export function PlanMaker() {
   };
 
   // Handler: Start New Goal
-  const handleStartNewGoal = () => {
-    if (window.confirm('Would you like to configure a new wellness goal?')) {
-      setCurrentPlan(null);
-      setCurrentGoal(null);
-      setViewState('goal_setup');
+  const handleStartNewGoal = async () => {
+    if (currentPlan) {
+      if (
+        window.confirm(
+          'Each patient can only have one plan at a time. To start a new goal, your existing plan must be cancelled and wiped from the database. Would you like to cancel it and start fresh now?'
+        )
+      ) {
+        setIsActionLoading(true);
+        try {
+          await patientPlanApi.cancelPlan(currentPlan.id);
+          setCurrentPlan(null);
+          setCurrentGoal(null);
+          setViewState('goal_setup');
+        } catch (err) {
+          alert(err.message || 'Failed to cancel plan.');
+        } finally {
+          setIsActionLoading(false);
+        }
+      }
+      return;
     }
+    setCurrentPlan(null);
+    setCurrentGoal(null);
+    setViewState('goal_setup');
   };
 
   if (isLoading) {

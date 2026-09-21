@@ -167,17 +167,15 @@ export function PlanDetailView({
             </Button>
           )}
 
-          {(plan.status === 'active' || plan.status === 'paused') && (
-            <Button
-              variant="ghost"
-              size="sm"
-              isLoading={isActionLoading}
-              onClick={onCancelPlan}
-              style={{ color: '#ef4444' }}
-            >
-              Cancel Plan
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            isLoading={isActionLoading}
+            onClick={onCancelPlan}
+            style={{ color: '#ef4444' }}
+          >
+            Cancel Plan
+          </Button>
 
           <Button
             variant="ghost"
