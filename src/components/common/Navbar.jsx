@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
-  Activity,
+  HeartPulse,
   LogOut,
   LayoutDashboard,
   User,
@@ -39,28 +39,75 @@ export function Navbar() {
     return 'Patient';
   };
 
+  /* Smooth-scroll handler for in-page section links */
+  const scrollToSection = (e, sectionId) => {
+    e.preventDefault();
+    closeMenu();
+    if (location.pathname !== '/') {
+      navigate('/');
+      setTimeout(() => {
+        const el = document.getElementById(sectionId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
+    } else {
+      const el = document.getElementById(sectionId);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   return (
     <header className="navbar">
       <div className="container navbar-inner">
         {/* Brand Logo */}
         <Link to="/" className="nav-brand" onClick={closeMenu}>
           <div className="nav-brand-icon">
-            <Activity size={22} strokeWidth={2.5} />
+            <HeartPulse size={22} strokeWidth={2.5} />
           </div>
-          <span className="nav-brand-text">
-            MedTrust<span className="brand-accent">Pro</span>
-          </span>
+          <div className="nav-brand-text-wrap">
+            <span className="nav-brand-text">
+              Medi<span className="brand-accent">AI</span>
+            </span>
+            <span className="nav-brand-subtitle">Your Health, Our Priority</span>
+          </div>
         </Link>
 
-        {/* Desktop Navigation */}
+        {/* Desktop Navigation — Centre Links */}
         <nav className="desktop-nav">
+          <div className="nav-center-links">
+            <Link
+              to="/"
+              className={`nav-link ${isActive('/') ? 'active' : ''}`}
+            >
+              Home
+            </Link>
+            <Link
+              to="/for-patients"
+              className={`nav-link ${isActive('/for-patients') ? 'active' : ''}`}
+            >
+              For Patients
+            </Link>
+            <Link
+              to="/for-doctors"
+              className={`nav-link ${isActive('/for-doctors') ? 'active' : ''}`}
+            >
+              For Doctors
+            </Link>
+            <Link
+              to="/about"
+              className={`nav-link ${isActive('/about') ? 'active' : ''}`}
+            >
+              About
+            </Link>
+          </div>
+
+          {/* Right Auth Actions */}
           {!isAuthenticated ? (
             <div className="nav-auth-actions">
-              <Link to="/login" className="nav-link">
-                Sign In
+              <Link to="/login" className="btn btn-secondary btn-sm">
+                Log In
               </Link>
               <Link to="/signup" className="btn btn-primary btn-sm nav-cta-btn">
-                <span>Get Started</span>
+                <span>Sign Up</span>
                 <ArrowRight size={15} />
               </Link>
             </div>
@@ -119,6 +166,16 @@ export function Navbar() {
       {mobileMenuOpen && (
         <div className="mobile-nav animate-fade-in">
           <div className="container mobile-nav-inner">
+            {/* Mobile Section Links */}
+            <div className="mobile-section-links">
+              <Link to="/" className="mobile-section-link" onClick={closeMenu}>Home</Link>
+              <Link to="/for-patients" className="mobile-section-link" onClick={closeMenu}>For Patients</Link>
+              <Link to="/for-doctors" className="mobile-section-link" onClick={closeMenu}>For Doctors</Link>
+              <Link to="/about" className="mobile-section-link" onClick={closeMenu}>About</Link>
+            </div>
+
+            <div style={{ height: '1px', background: 'var(--border-color)', margin: '0.5rem 0' }} />
+
             {!isAuthenticated ? (
               <div className="mobile-auth-links">
                 <Link
@@ -126,14 +183,14 @@ export function Navbar() {
                   className="btn btn-secondary btn-block"
                   onClick={closeMenu}
                 >
-                  Sign In
+                  Log In
                 </Link>
                 <Link
                   to="/signup"
                   className="btn btn-primary btn-block"
                   onClick={closeMenu}
                 >
-                  Get Started
+                  Sign Up
                 </Link>
               </div>
             ) : (

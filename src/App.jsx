@@ -10,6 +10,9 @@ import { SignupPage } from './pages/SignupPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
 import { DoctorPortalPage } from './pages/DoctorPortalPage';
 import { PatientDashboardPage } from './pages/PatientDashboardPage';
+import { ForPatientsPage } from './pages/ForPatientsPage';
+import { ForDoctorsPage } from './pages/ForDoctorsPage';
+import { AboutPage } from './pages/AboutPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { DoctorReviewPage } from './pages/DoctorReviewPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
@@ -22,7 +25,7 @@ function AppContent() {
 
   // Dashboard & meeting rooms provide their own dedicated layout shell (sidebar/topbar/full-screen)
   const isDashboardOrMeeting =
-    location.pathname.startsWith('/patient') ||
+    (location.pathname.startsWith('/patient') && !location.pathname.startsWith('/for-patients')) ||
     location.pathname.startsWith('/doctor') ||
     location.pathname.startsWith('/admin/dashboard') ||
     location.pathname.startsWith('/admin/doctors') ||
@@ -39,6 +42,9 @@ function AppContent() {
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/for-patients" element={<ForPatientsPage />} />
+          <Route path="/for-doctors" element={<ForDoctorsPage />} />
+          <Route path="/about" element={<AboutPage />} />
 
           {/* Protected Patient Routes */}
           <Route path="/patient/dashboard" element={<Navigate to="/patient/dashboard/book" replace />} />
@@ -96,10 +102,11 @@ function AppContent() {
         </Routes>
       </main>
 
-      {!isDashboardOrMeeting && (
+      {/* Simple footer for non-dashboard, non-homepage pages (login, signup, etc.) */}
+      {!isDashboardOrMeeting && location.pathname !== '/' && location.pathname !== '/for-patients' && location.pathname !== '/for-doctors' && location.pathname !== '/about' && (
         <footer style={{ background: '#ffffff', borderTop: '1px solid var(--border-color)', padding: '1.5rem 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
           <div className="container">
-            © {new Date().getFullYear()} MedTrust SaaS Platform. All medical credentials encrypted and verified.
+            © {new Date().getFullYear()} MediAI. All rights reserved.
           </div>
         </footer>
       )}
