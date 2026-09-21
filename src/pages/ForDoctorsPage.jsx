@@ -169,8 +169,9 @@ export function ForDoctorsPage() {
           SECTION 1 — HERO
       ══════════════════════════════════════════════════════════════════ */}
       <section className="fd-hero">
-        <div className="fd-hero-bg-dots" />
-        <div className="fd-hero-bg-glow" />
+        <div className="fd-hero-bg-orb fd-hero-bg-orb-1" />
+        <div className="fd-hero-bg-orb fd-hero-bg-orb-2" />
+        <div className="fd-hero-bg-grid" />
 
         <div className="container fd-hero-grid">
           {/* Left Column — Text & Stats */}
@@ -667,7 +668,6 @@ export function ForDoctorsPage() {
               <Link to="/">Home</Link>
               <Link to="/for-patients">For Patients</Link>
               <Link to="/for-doctors">For Doctors</Link>
-              <Link to="/features">Features</Link>
               <Link to="/about">About</Link>
             </div>
             <div className="hp-footer-social">

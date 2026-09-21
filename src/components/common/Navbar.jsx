@@ -93,12 +93,6 @@ export function Navbar() {
               For Doctors
             </Link>
             <Link
-              to="/features"
-              className={`nav-link ${isActive('/features') ? 'active' : ''}`}
-            >
-              Features
-            </Link>
-            <Link
               to="/about"
               className={`nav-link ${isActive('/about') ? 'active' : ''}`}
             >
@@ -177,7 +171,6 @@ export function Navbar() {
               <Link to="/" className="mobile-section-link" onClick={closeMenu}>Home</Link>
               <Link to="/for-patients" className="mobile-section-link" onClick={closeMenu}>For Patients</Link>
               <Link to="/for-doctors" className="mobile-section-link" onClick={closeMenu}>For Doctors</Link>
-              <Link to="/features" className="mobile-section-link" onClick={closeMenu}>Features</Link>
               <Link to="/about" className="mobile-section-link" onClick={closeMenu}>About</Link>
             </div>
 
