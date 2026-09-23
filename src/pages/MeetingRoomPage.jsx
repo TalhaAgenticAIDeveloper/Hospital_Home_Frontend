@@ -728,27 +728,6 @@ export function MeetingRoomPage() {
               const other = data.participants.find((p) => p.user_id !== user?.id);
               if (other) {
                 setPeerName(other.name);
-                // Don't set peerConnected here — let the actual WebRTC
-                // ontrack / onconnectionstatechange confirm the real connection.
-                // Initiate WebRTC negotiation from joining side as well,
-                // so video works even if the other side's peer-joined handler
-                // hasn't fired yet or failed silently.
-                try {
-                  const pc = createPeerConnection(meetingData, activeStream);
-                  const offer = await pc.createOffer({
-                    offerToReceiveAudio: true,
-                    offerToReceiveVideo: true,
-                  });
-                  await pc.setLocalDescription(offer);
-                  ws.send(
-                    JSON.stringify({
-                      type: 'offer',
-                      sdp: pc.localDescription,
-                    })
-                  );
-                } catch (err) {
-                  console.warn('room-status: WebRTC offer creation failed:', err);
-                }
               }
             }
             break;
@@ -757,9 +736,8 @@ export function MeetingRoomPage() {
             setPeerName(data.name || 'Participant');
             setToast({ type: 'info', message: `${data.name} joined the consultation.` });
 
-            // Create PeerConnection and send offer (skip if PC already exists
-            // from room-status handler — that means we already sent an offer)
-            if (!peerConnectionRef.current) {
+            // Create PeerConnection and initiate offer to newcomer
+            try {
               const pc = createPeerConnection(meetingData, activeStream);
               const offer = await pc.createOffer({
                 offerToReceiveAudio: true,
@@ -773,39 +751,51 @@ export function MeetingRoomPage() {
                   sdp: pc.localDescription,
                 })
               );
+              console.log('WebRTC offer sent to newly joined participant');
+            } catch (err) {
+              console.error('Failed to create offer on peer-joined:', err);
             }
             break;
           }
 
           case 'offer': {
-            const pcAns = createPeerConnection(meetingData, activeStream);
+            try {
+              const pcAns = createPeerConnection(meetingData, activeStream);
 
-            // Handle WebRTC "glare": if we already sent our own offer
-            // (have-local-offer), roll it back and accept the incoming one.
-            if (pcAns.signalingState === 'have-local-offer') {
-              await pcAns.setLocalDescription({ type: 'rollback' });
+              // Handle WebRTC glare if we happened to have a local offer
+              if (pcAns.signalingState === 'have-local-offer') {
+                await pcAns.setLocalDescription({ type: 'rollback' });
+              }
+
+              await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
+              const answer = await pcAns.createAnswer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true,
+              });
+              await pcAns.setLocalDescription(answer);
+
+              ws.send(
+                JSON.stringify({
+                  type: 'answer',
+                  sdp: pcAns.localDescription,
+                })
+              );
+              console.log('WebRTC answer sent back');
+            } catch (err) {
+              console.error('Failed to handle incoming offer:', err);
             }
-
-            await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
-            const answer = await pcAns.createAnswer({
-              offerToReceiveAudio: true,
-              offerToReceiveVideo: true,
-            });
-            await pcAns.setLocalDescription(answer);
-
-            ws.send(
-              JSON.stringify({
-                type: 'answer',
-                sdp: pcAns.localDescription,
-              })
-            );
             break;
           }
 
           case 'answer': {
-            const pcOffer = peerConnectionRef.current;
-            if (pcOffer && pcOffer.signalingState !== 'stable') {
-              await pcOffer.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            try {
+              const pcOffer = peerConnectionRef.current;
+              if (pcOffer && pcOffer.signalingState === 'have-local-offer') {
+                await pcOffer.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                console.log('WebRTC remote description set from answer successfully');
+              }
+            } catch (err) {
+              console.error('Failed to handle incoming answer:', err);
             }
             break;
           }
