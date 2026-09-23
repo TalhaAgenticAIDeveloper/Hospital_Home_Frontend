@@ -240,27 +240,27 @@ export function QuestionnaireView({
                 ))}
               </div>
             ) : currentQ.question_type === 'number' ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', maxWidth: '280px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', maxWidth: '360px', width: '100%' }}>
                 <input
-                  type="number"
-                  step="any"
+                  type="text"
                   className="pm-form-input"
-                  placeholder="Enter number..."
+                  placeholder={currentQ.unit ? `e.g. 70 ${currentQ.unit} or 70` : "Enter your answer (numbers or with units)..."}
                   value={currentInput}
                   onChange={(e) => setCurrentInput(e.target.value)}
                   autoFocus
                 />
                 {currentQ.unit && (
-                  <span style={{ fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
                     {currentQ.unit}
                   </span>
                 )}
               </div>
             ) : currentQ.question_type === 'time' ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', maxWidth: '200px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', maxWidth: '260px', width: '100%' }}>
                 <input
-                  type="time"
+                  type="text"
                   className="pm-form-input"
+                  placeholder="e.g. 07:30 AM or 8:00"
                   value={currentInput}
                   onChange={(e) => setCurrentInput(e.target.value)}
                   autoFocus
