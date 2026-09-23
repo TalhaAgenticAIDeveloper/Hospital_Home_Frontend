@@ -622,8 +622,24 @@ export function MeetingRoomPage() {
               const other = data.participants.find((p) => p.user_id !== user?.id);
               if (other) {
                 setPeerName(other.name);
-                setPeerConnected(true);
-                setBothJoined(true);
+                // Don't set peerConnected here — let the actual WebRTC
+                // ontrack / onconnectionstatechange confirm the real connection.
+                // Initiate WebRTC negotiation from joining side as well,
+                // so video works even if the other side's peer-joined handler
+                // hasn't fired yet or failed silently.
+                try {
+                  const pc = createPeerConnection(meetingData, activeStream);
+                  const offer = await pc.createOffer();
+                  await pc.setLocalDescription(offer);
+                  ws.send(
+                    JSON.stringify({
+                      type: 'offer',
+                      sdp: pc.localDescription,
+                    })
+                  );
+                } catch (err) {
+                  console.warn('room-status: WebRTC offer creation failed:', err);
+                }
               }
             }
             break;
@@ -632,22 +648,32 @@ export function MeetingRoomPage() {
             setPeerName(data.name || 'Participant');
             setToast({ type: 'info', message: `${data.name} joined the consultation.` });
 
-            // Initiator creates and sends offer
-            const pc = createPeerConnection(meetingData, activeStream);
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
+            // Create PeerConnection and send offer (skip if PC already exists
+            // from room-status handler — that means we already sent an offer)
+            if (!peerConnectionRef.current) {
+              const pc = createPeerConnection(meetingData, activeStream);
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
 
-            ws.send(
-              JSON.stringify({
-                type: 'offer',
-                sdp: pc.localDescription,
-              })
-            );
+              ws.send(
+                JSON.stringify({
+                  type: 'offer',
+                  sdp: pc.localDescription,
+                })
+              );
+            }
             break;
           }
 
           case 'offer': {
             const pcAns = createPeerConnection(meetingData, activeStream);
+
+            // Handle WebRTC "glare": if we already sent our own offer
+            // (have-local-offer), roll it back and accept the incoming one.
+            if (pcAns.signalingState === 'have-local-offer') {
+              await pcAns.setLocalDescription({ type: 'rollback' });
+            }
+
             await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
             const answer = await pcAns.createAnswer();
             await pcAns.setLocalDescription(answer);
