@@ -554,15 +554,17 @@ export function PatientOnboardingModal({ isOpen, onClose, onCompleted }) {
                   onClick={() => setCurrentStep(2)}
                   style={{ color: 'var(--text-muted)' }}
                 >
-                  Skip for Now
+                  Skip
                 </Button>
                 <Button
                   type="button"
                   variant="primary"
                   onClick={() => setCurrentStep(2)}
                   icon={<ChevronRight size={16} />}
+                  disabled={documents.length === 0}
+                  style={documents.length === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
                 >
-                  {documents.length > 0 ? 'Continue' : 'Skip & Continue'}
+                  Continue
                 </Button>
               </div>
             </div>

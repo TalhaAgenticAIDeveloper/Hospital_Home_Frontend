@@ -16,7 +16,14 @@ export function QuestionnaireView({
   isGenerating,
 }) {
   const questions = goal?.questions || [];
-  const answers = goal?.answers || [];
+  // Build answers array from each question's current_answer (backend nests answers inside questions)
+  const answers = questions
+    .filter((q) => q.current_answer)
+    .map((q) => ({
+      question_id: q.id,
+      raw_input: q.current_answer.raw_input,
+      validation_status: q.current_answer.validation_status,
+    }));
 
   // Find index of first unanswered required question or default to 0
   const findInitialIndex = () => {
@@ -61,9 +68,9 @@ export function QuestionnaireView({
     setFeedback(null);
 
     try {
-      const res = await onAnswerSubmitted(currentQ.question_key, currentInput.trim());
+      const res = await onAnswerSubmitted(currentQ.id, currentInput.trim());
       if (res?.validation_status === 'valid') {
-        setFeedback({ type: 'success', message: res.feedback_message || 'Saved successfully!' });
+        setFeedback({ type: 'success', message: res.clarification_message || 'Saved successfully!' });
         // Automatically advance after brief success state if not last question
         if (currentIndex < totalQuestions - 1) {
           setTimeout(() => {
@@ -74,7 +81,7 @@ export function QuestionnaireView({
       } else {
         setFeedback({
           type: 'warning',
-          message: res?.feedback_message || 'Please review your input format.',
+          message: res?.clarification_message || 'Please review your input format.',
         });
       }
     } catch (err) {
@@ -219,9 +226,9 @@ export function QuestionnaireView({
 
           {/* Options / Input based on question_type */}
           <div className="pm-question-input-wrapper">
-            {currentQ.question_type === 'select' && currentQ.options?.items ? (
+            {currentQ.question_type === 'select' && (Array.isArray(currentQ.options) ? currentQ.options : currentQ.options?.items) ? (
               <div className="pm-options-grid">
-                {currentQ.options.items.map((opt) => (
+                {(Array.isArray(currentQ.options) ? currentQ.options : currentQ.options.items).map((opt) => (
                   <button
                     key={opt}
                     type="button"
