@@ -8,8 +8,11 @@ const rawBaseUrl =
   import.meta.env.VITE_BASE_URL ||
   'http://localhost:8000';
 
-// Remove trailing slash if present to guarantee consistent endpoint concatenation
-export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
+// Remove trailing slash if present. If it was '/' or empty, use window.location.origin in browser
+export const API_BASE_URL =
+  !rawBaseUrl || rawBaseUrl === '/'
+    ? (typeof window !== 'undefined' && window.location ? window.location.origin : '')
+    : rawBaseUrl.replace(/\/+$/, '');
 
 export const TOKEN_KEYS = {
   ACCESS: 'healthcare_access_token',

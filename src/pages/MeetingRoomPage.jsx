@@ -602,14 +602,34 @@ export function MeetingRoomPage() {
   const connectWebSocket = (meetingData, activeStream) => {
     const { accessToken } = getStoredTokens();
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const parsedApi = new URL(API_BASE_URL);
-    const wsUrl = `${wsProto}//${parsedApi.host}/api/v1/meetings/ws/${meetingData.room_id}?token=${accessToken}`;
+    
+    // Safely extract hostname for WebSocket signaling server
+    let host = window.location.host;
+    try {
+      if (API_BASE_URL) {
+        const parsedApi = new URL(API_BASE_URL, window.location.origin);
+        host = parsedApi.host || window.location.host;
+      }
+    } catch (err) {
+      console.warn('Could not parse API_BASE_URL, defaulting to window.location.host:', err);
+    }
+
+    const wsUrl = `${wsProto}//${host}/api/v1/meetings/ws/${meetingData.room_id}?token=${accessToken}`;
+    console.log('Connecting to meeting signaling server:', wsUrl);
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('Connected to meeting signaling server');
+      console.log('Connected to meeting signaling server:', wsUrl);
+    };
+
+    ws.onerror = (err) => {
+      console.error('Signaling WebSocket error:', err);
+      setToast({
+        type: 'error',
+        message: 'Could not connect to video signaling server. Please check your network or server proxy.',
+      });
     };
 
     ws.onmessage = async (event) => {
