@@ -8,24 +8,13 @@ export const consultationAiApi = {
    * @param {string} filename - e.g., "doctor.webm"
    */
   uploadAudio: async (meetingId, audioBlob, filename = 'audio.webm') => {
-    const { accessToken } = getStoredTokens();
     const formData = new FormData();
     formData.append('audio_file', audioBlob, filename);
 
-    const response = await fetch(`${API_BASE_URL}/api/v1/meetings/${meetingId}/upload-audio`, {
+    return apiFetch(`/api/v1/meetings/${meetingId}/upload-audio`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
       body: formData,
     });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.detail || 'Failed to upload audio.');
-    }
-
-    return response.json();
   },
 
   /**

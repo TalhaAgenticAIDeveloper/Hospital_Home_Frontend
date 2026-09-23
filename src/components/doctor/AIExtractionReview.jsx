@@ -147,13 +147,19 @@ export function AIExtractionReview({
         setViewStatus('failed');
         setErrorMessage(statusRes.transcript_error || 'Audio transcription encountered an issue.');
       } else {
-        // If an extraction exists or can be fetched, attempt it; otherwise show processing & poll
+        // No extraction in DB yet. Attempt to initiate extraction (backend will use transcript or doctor notes)
         try {
-          await fetchExtractionData();
-        } catch {
           setViewStatus('processing');
-          setStatusMessage('Preparing AI consultation documentation...');
+          setStatusMessage('Initiating AI clinical extraction...');
+          await consultationAiApi.startExtraction(meetingId);
           startPolling();
+        } catch (autoErr) {
+          // If neither audio nor notes exist, provide helpful medical UI guidance
+          setViewStatus('failed');
+          setErrorMessage(
+            autoErr?.detail ||
+            'No audio recording or clinical notes were found for this consultation. Please use the Manual Prescription Writer to create a prescription.'
+          );
         }
       }
     } catch (err) {
@@ -305,13 +311,24 @@ export function AIExtractionReview({
   const handleRegenerate = async () => {
     if (isRegenerating) return;
     setIsRegenerating(true);
+    setViewStatus('processing');
+    setErrorMessage('');
     try {
-      await consultationAiApi.startExtraction(meetingId);
-      setViewStatus('processing');
-      setStatusMessage('Regenerating clinical extraction with Groq LLM...');
+      const status = await consultationAiApi.getStatus(meetingId);
+      if (status.transcription_status === 'completed') {
+        setStatusMessage('Generating clinical extraction with Groq AI...');
+        await consultationAiApi.startExtraction(meetingId);
+      } else if (status.has_doctor_audio || status.has_patient_audio) {
+        setStatusMessage('Transcribing consultation audio (Speech-to-Text)...');
+        await consultationAiApi.startTranscription(meetingId);
+      } else {
+        setStatusMessage('Analyzing consultation notes & generating extraction...');
+        await consultationAiApi.startExtraction(meetingId);
+      }
       startPolling();
     } catch (err) {
-      setValidationError(err?.detail || err?.message || 'Failed to trigger regeneration.');
+      setViewStatus('failed');
+      setErrorMessage(err?.detail || err?.message || 'Failed to trigger AI processing. You can write the prescription manually.');
     } finally {
       setIsRegenerating(false);
     }

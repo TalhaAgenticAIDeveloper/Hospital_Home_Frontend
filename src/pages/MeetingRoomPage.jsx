@@ -560,13 +560,17 @@ export function MeetingRoomPage() {
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
-        mediaRecorderRef.current.stop();
+        await new Promise((resolve) => {
+          mediaRecorderRef.current.onstop = () => resolve();
+          mediaRecorderRef.current.stop();
+          setTimeout(resolve, 800); // Safety fallback
+        });
       } catch (e) {
         console.warn('Error stopping MediaRecorder:', e);
       }
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
 
     if (audioChunksRef.current.length > 0) {
       try {
@@ -1037,14 +1041,21 @@ export function MeetingRoomPage() {
         doctor_notes: doctorNotes.trim() || undefined,
       });
 
-      // If audio was uploaded, start Groq Whisper transcription background pipeline
-      if (uploadRes) {
-        setAiDraftState('processing');
-        setAiDraftMessage('AI is preparing the prescription from consultation dialogue...');
-        try {
-          await consultationAiApi.startTranscription(meeting.id);
-        } catch (sttErr) {
-          console.warn('Auto-transcription notice:', sttErr);
+      // Always initiate AI preparation workflow for doctor
+      setAiDraftState('processing');
+      setAiDraftMessage('AI is preparing the prescription draft...');
+
+      try {
+        await consultationAiApi.startTranscription(meeting.id);
+      } catch (sttErr) {
+        console.warn('Auto-transcription notice:', sttErr);
+        // If audio transcription not available (e.g. mic was off), but doctor typed notes, trigger extraction directly
+        if (doctorNotes.trim()) {
+          try {
+            await consultationAiApi.startExtraction(meeting.id);
+          } catch (exErr) {
+            console.warn('Direct extraction from notes notice:', exErr);
+          }
         }
       }
 
