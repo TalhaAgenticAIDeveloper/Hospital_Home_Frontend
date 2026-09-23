@@ -119,20 +119,21 @@ export function AIExtractionReview({
       // 1. Fetch current status
       const statusRes = await consultationAiApi.getStatus(meetingId);
 
-      if (statusRes.can_approve && statusRes.extraction_status === 'completed') {
+      if (statusRes.extraction_status === 'completed') {
         // Extraction is ready
         await fetchExtractionData();
       } else if (
         statusRes.transcription_status === 'processing' ||
         statusRes.transcription_status === 'pending' ||
-        statusRes.extraction_status === 'processing'
+        statusRes.extraction_status === 'processing' ||
+        (!statusRes.transcription_status && (statusRes.has_doctor_audio || statusRes.has_patient_audio))
       ) {
         // Currently in progress, start polling
         setViewStatus('processing');
         setStatusMessage(
-          statusRes.transcription_status === 'processing'
-            ? 'Transcribing consultation audio (Speech-to-Text)...'
-            : 'Analyzing dialogue & extracting clinical documentation...'
+          statusRes.extraction_status === 'processing'
+            ? 'Analyzing dialogue & extracting clinical documentation...'
+            : 'Transcribing consultation audio (Speech-to-Text)...'
         );
         startPolling();
       } else if (
@@ -146,8 +147,14 @@ export function AIExtractionReview({
         setViewStatus('failed');
         setErrorMessage(statusRes.transcript_error || 'Audio transcription encountered an issue.');
       } else {
-        // Fallback: attempt to load extraction anyway
-        await fetchExtractionData();
+        // If an extraction exists or can be fetched, attempt it; otherwise show processing & poll
+        try {
+          await fetchExtractionData();
+        } catch {
+          setViewStatus('processing');
+          setStatusMessage('Preparing AI consultation documentation...');
+          startPolling();
+        }
       }
     } catch (err) {
       console.error('Error fetching consultation AI status:', err);
@@ -267,6 +274,16 @@ export function AIExtractionReview({
       setViewStatus('ready');
     } catch (err) {
       console.error('Error fetching extraction details:', err);
+      try {
+        const s = await consultationAiApi.getStatus(meetingId);
+        if (s && (s.extraction_status === 'processing' || s.transcription_status === 'processing' || (!s.extraction_status && s.has_doctor_audio))) {
+          setViewStatus('processing');
+          setStatusMessage('Clinical documentation is being prepared by AI...');
+          startPolling();
+          return;
+        }
+      } catch (e) {}
+
       setViewStatus('failed');
       setErrorMessage(err?.detail || err?.message || 'Could not load extraction data.');
     }

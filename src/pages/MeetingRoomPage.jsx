@@ -86,6 +86,9 @@ export function MeetingRoomPage() {
   const [showAIExtractionReview, setShowAIExtractionReview] = useState(false);
   const [showPrescriptionView, setShowPrescriptionView] = useState(false);
   const [prescription, setPrescription] = useState(null);
+  const [aiDraftState, setAiDraftState] = useState(null); // null | 'processing' | 'ready' | 'failed'
+  const [aiDraftMessage, setAiDraftMessage] = useState('');
+  const aiPollingTimerRef = useRef(null);
 
   // ─── Document Panel States ────────────────────────────────────────────
   const [showDocPanel, setShowDocPanel] = useState(false);
@@ -173,21 +176,29 @@ export function MeetingRoomPage() {
           setPrescription(rx);
         }
       } catch (err) {
-        // If doctor and no prescription yet, check AI status or open AI extraction review
+        // If doctor and no prescription yet, inspect AI documentation status
         if (isMounted && user?.role === 'doctor') {
           consultationAiApi.getStatus(meetingId)
             .then((status) => {
-              if (isMounted) {
-                if (status.audio_uploaded || status.transcription_status !== 'pending' || status.extraction_status) {
-                  setShowAIExtractionReview(true);
-                } else {
-                  setShowPrescriptionWriter(true);
-                }
+              if (!isMounted) return;
+              if (status.has_approved_extraction) {
+                prescriptionApi.getMeetingPrescription(meetingId).then((p) => {
+                  if (isMounted && p) setPrescription(p);
+                }).catch(() => {});
+              } else if (status.extraction_status === 'completed') {
+                setAiDraftState('ready');
+                setAiDraftMessage('AI prescription draft is ready for review.');
+              } else if (
+                status.extraction_status === 'processing' ||
+                status.transcription_status === 'processing' ||
+                status.has_doctor_audio ||
+                status.has_patient_audio
+              ) {
+                setAiDraftState('processing');
+                setAiDraftMessage('AI is preparing the prescription from consultation dialogue...');
               }
             })
-            .catch(() => {
-              if (isMounted) setShowPrescriptionWriter(true);
-            });
+            .catch(() => {});
         }
       }
 
@@ -213,6 +224,80 @@ export function MeetingRoomPage() {
       isMounted = false;
     };
   }, [sessionState, meetingId, user?.role]);
+
+  // ─── AI Extraction Background Poller (Doctor Only) ──────────────────────
+  useEffect(() => {
+    if (aiDraftState !== 'processing' || !meetingId || user?.role !== 'doctor') {
+      if (aiPollingTimerRef.current) {
+        clearInterval(aiPollingTimerRef.current);
+        aiPollingTimerRef.current = null;
+      }
+      return;
+    }
+
+    let isPolling = true;
+
+    const pollStatus = async () => {
+      try {
+        const targetId = meeting?.id || meetingId;
+        const res = await consultationAiApi.getStatus(targetId);
+        if (!isPolling) return;
+
+        if (res.has_approved_extraction) {
+          setAiDraftState(null);
+          prescriptionApi.getMeetingPrescription(targetId).then((p) => {
+            if (isPolling && p) setPrescription(p);
+          }).catch(() => {});
+          return;
+        }
+
+        if (res.extraction_status === 'completed') {
+          setAiDraftState('ready');
+          setAiDraftMessage('Prescription draft ready!');
+          setShowAIExtractionReview(true);
+          setToast({
+            type: 'success',
+            message: 'Prescription draft prepared by AI! Opening review dialog...',
+          });
+          if (aiPollingTimerRef.current) {
+            clearInterval(aiPollingTimerRef.current);
+            aiPollingTimerRef.current = null;
+          }
+        } else if (res.extraction_status === 'failed' || res.transcription_status === 'failed') {
+          setAiDraftState('failed');
+          setAiDraftMessage(
+            res.extraction_error || res.transcript_error || 'AI transcription/extraction could not be completed.'
+          );
+          setToast({
+            type: 'warning',
+            message: 'AI draft preparation failed. You can write the prescription manually or retry.',
+          });
+          if (aiPollingTimerRef.current) {
+            clearInterval(aiPollingTimerRef.current);
+            aiPollingTimerRef.current = null;
+          }
+        } else if (res.extraction_status === 'processing') {
+          setAiDraftMessage('Extracting diagnoses, medicines, dosages, and instructions...');
+        } else if (res.transcription_status === 'processing') {
+          setAiDraftMessage('Transcribing dialogue with Whisper Speech-to-Text...');
+        }
+      } catch (err) {
+        console.warn('AI background poller error:', err);
+      }
+    };
+
+    // Run immediate check and then every 2.5 seconds
+    pollStatus();
+    aiPollingTimerRef.current = setInterval(pollStatus, 2500);
+
+    return () => {
+      isPolling = false;
+      if (aiPollingTimerRef.current) {
+        clearInterval(aiPollingTimerRef.current);
+        aiPollingTimerRef.current = null;
+      }
+    };
+  }, [aiDraftState, meetingId, meeting?.id, user?.role]);
 
 
   // Attach local stream to <video> as soon as element and stream are both available
@@ -954,6 +1039,8 @@ export function MeetingRoomPage() {
 
       // If audio was uploaded, start Groq Whisper transcription background pipeline
       if (uploadRes) {
+        setAiDraftState('processing');
+        setAiDraftMessage('AI is preparing the prescription from consultation dialogue...');
         try {
           await consultationAiApi.startTranscription(meeting.id);
         } catch (sttErr) {
@@ -963,8 +1050,7 @@ export function MeetingRoomPage() {
 
       setShowEndModal(false);
       setSessionState('completed');
-      setShowAIExtractionReview(true);
-      setToast({ type: 'success', message: 'Consultation ended. AI documentation is processing.' });
+      setToast({ type: 'info', message: 'Consultation ended. AI is preparing the prescription in the background.' });
       cleanupCall();
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to end consultation.' });
@@ -1159,7 +1245,7 @@ export function MeetingRoomPage() {
             )}
 
             {user?.role === 'doctor' && (
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 {prescription ? (
                   <Button
                     variant="secondary"
@@ -1168,8 +1254,158 @@ export function MeetingRoomPage() {
                   >
                     View Issued Prescription ({prescription.medicines?.length || 0} Meds)
                   </Button>
+                ) : aiDraftState === 'processing' ? (
+                  <div
+                    style={{
+                      width: '100%',
+                      maxWidth: '520px',
+                      padding: '1.25rem 1.5rem',
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(5, 150, 105, 0.04) 100%)',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      boxShadow: '0 4px 20px -2px rgba(16, 185, 129, 0.1)',
+                      textAlign: 'center',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
+                      <div
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '8px',
+                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#ffffff',
+                        }}
+                      >
+                        <Sparkles size={16} />
+                      </div>
+                      <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                        AI is Preparing Prescription Draft
+                      </h4>
+                    </div>
+                    <p style={{ margin: '0 0 0.85rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      {aiDraftMessage || 'Analyzing consultation dialogue and structuring medications in the background...'}
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1rem', color: '#059669', fontSize: '0.8rem', fontWeight: 600 }}>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Speech-to-Text & Clinical Analysis running...</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <Button
+                        variant="primary"
+                        onClick={() => setShowAIExtractionReview(true)}
+                        icon={<Sparkles size={15} />}
+                        style={{
+                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                          border: 'none',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        View Live Progress
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => setShowPrescriptionWriter(true)}
+                        icon={<Pill size={15} />}
+                        style={{ fontSize: '0.85rem' }}
+                      >
+                        Write Manually
+                      </Button>
+                    </div>
+                  </div>
+                ) : aiDraftState === 'ready' ? (
+                  <div
+                    style={{
+                      width: '100%',
+                      maxWidth: '520px',
+                      padding: '1.25rem 1.5rem',
+                      borderRadius: '16px',
+                      background: '#ecfdf5',
+                      border: '1px solid #a7f3d0',
+                      textAlign: 'center',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
+                      <CheckCircle2 size={22} color="#059669" />
+                      <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#065f46' }}>
+                        Prescription Draft Ready for Review
+                      </h4>
+                    </div>
+                    <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#047857' }}>
+                      AI clinical extraction completed successfully. Please review, edit, or approve the prescription.
+                    </p>
+                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <Button
+                        variant="primary"
+                        onClick={() => setShowAIExtractionReview(true)}
+                        icon={<Sparkles size={16} />}
+                        style={{
+                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                          border: 'none',
+                          boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                        }}
+                      >
+                        Review & Approve Prescription
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => setShowPrescriptionWriter(true)}
+                        icon={<Pill size={16} />}
+                      >
+                        Manual Prescription Writer
+                      </Button>
+                    </div>
+                  </div>
+                ) : aiDraftState === 'failed' ? (
+                  <div
+                    style={{
+                      width: '100%',
+                      maxWidth: '520px',
+                      padding: '1.25rem 1.5rem',
+                      borderRadius: '16px',
+                      background: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      textAlign: 'center',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
+                      <AlertCircle size={22} color="#dc2626" />
+                      <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#991b1b' }}>
+                        AI Documentation Notice
+                      </h4>
+                    </div>
+                    <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#b91c1c' }}>
+                      {aiDraftMessage || 'AI extraction could not be completed automatically.'}
+                    </p>
+                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <Button
+                        variant="primary"
+                        onClick={() => {
+                          setAiDraftState('processing');
+                          setAiDraftMessage('Retrying AI clinical extraction...');
+                          consultationAiApi.startExtraction(meeting?.id || meetingId).catch(() => {});
+                        }}
+                        icon={<RefreshCw size={15} />}
+                      >
+                        Retry AI Extraction
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => setShowPrescriptionWriter(true)}
+                        icon={<Pill size={15} />}
+                      >
+                        Write Manually
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
-                  <>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                     <Button
                       variant="primary"
                       onClick={() => setShowAIExtractionReview(true)}
@@ -1189,7 +1425,7 @@ export function MeetingRoomPage() {
                     >
                       Manual Prescription Writer
                     </Button>
-                  </>
+                  </div>
                 )}
               </div>
             )}
