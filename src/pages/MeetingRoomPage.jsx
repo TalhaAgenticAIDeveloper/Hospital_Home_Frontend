@@ -104,6 +104,8 @@ export function MeetingRoomPage() {
   // DOM and WebRTC refs
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+  const [audioAutoplayBlocked, setAudioAutoplayBlocked] = useState(false);
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const wsRef = useRef(null);
@@ -497,6 +499,35 @@ export function MeetingRoomPage() {
     return null;
   };
 
+  // Helper to ensure audio and video tracks are attached to the PeerConnection
+  const attachTracksToPC = (pc, stream) => {
+    const activeStream = stream || localStreamRef.current;
+    if (!pc || !activeStream) return;
+    const senders = pc.getSenders();
+    activeStream.getTracks().forEach((track) => {
+      const already = senders.some((s) => s.track && s.track.id === track.id);
+      if (!already) {
+        try {
+          pc.addTrack(track, activeStream);
+          console.log(`Attached ${track.kind} track to PC (enabled: ${track.enabled})`);
+        } catch (err) {
+          console.warn(`Failed to add ${track.kind} track to PC:`, err);
+        }
+      }
+    });
+  };
+
+  const unlockAudio = () => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.play().then(() => {
+        setAudioAutoplayBlocked(false);
+      }).catch((e) => console.warn('Audio play still prevented by browser:', e));
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.play().catch(() => {});
+    }
+  };
+
   // ─── 2. Safe Media Acquisition with Timeout Fallback ─────────────────────
   async function initializeMediaAndSignaling(meetingData) {
     let stream = null;
@@ -511,9 +542,22 @@ export function MeetingRoomPage() {
         );
 
         stream = await Promise.race([
-          navigator.mediaDevices.getUserMedia({ video: true, audio: true }),
+          navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          }),
           timeoutPromise,
         ]);
+
+        // Explicitly ensure audio tracks are enabled
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+          console.log('Local mic audio track ready:', track.label, track.enabled);
+        });
 
         localStreamRef.current = stream;
         setLocalStream(stream);
@@ -523,7 +567,17 @@ export function MeetingRoomPage() {
         console.warn('Video acquisition failed or timed out. Trying audio-only:', videoErr);
 
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+          stream.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
           localStreamRef.current = stream;
           setLocalStream(stream);
           setIsVideoMuted(true);
@@ -551,26 +605,57 @@ export function MeetingRoomPage() {
   };
 
   const createPeerConnection = (meetingData, stream) => {
-    if (peerConnectionRef.current) return peerConnectionRef.current;
+    if (peerConnectionRef.current) {
+      attachTracksToPC(peerConnectionRef.current, stream);
+      return peerConnectionRef.current;
+    }
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionRef.current = pc;
 
-    // Add local tracks if available
-    const activeStream = stream || localStreamRef.current;
-    if (activeStream) {
-      activeStream.getTracks().forEach((track) => {
-        pc.addTrack(track, activeStream);
-      });
-    }
+    attachTracksToPC(pc, stream);
 
-    // Remote track handler
+    // Remote track handler - routes audio and video cleanly to respective elements
     pc.ontrack = (event) => {
-      if (remoteVideoRef.current && event.streams[0]) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-        setPeerConnected(true);
-        setBothJoined(true);
+      console.log('WebRTC ontrack received:', event.track.kind, event.track.id);
+
+      // Dedicated audio track routing to ensure microphone sound is never muted
+      if (event.track.kind === 'audio') {
+        if (remoteAudioRef.current) {
+          const audioStream = (event.streams && event.streams[0])
+            ? event.streams[0]
+            : new MediaStream([event.track]);
+          remoteAudioRef.current.srcObject = audioStream;
+          remoteAudioRef.current.play().then(() => {
+            setAudioAutoplayBlocked(false);
+          }).catch((err) => {
+            console.warn('Remote audio autoplay blocked by browser policy:', err);
+            setAudioAutoplayBlocked(true);
+          });
+        }
       }
+
+      // Video track routing
+      if (remoteVideoRef.current) {
+        if (event.streams && event.streams[0]) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        } else {
+          let currentStream = remoteVideoRef.current.srcObject;
+          if (!currentStream) {
+            currentStream = new MediaStream();
+            remoteVideoRef.current.srcObject = currentStream;
+          }
+          if (!currentStream.getTracks().includes(event.track)) {
+            currentStream.addTrack(event.track);
+          }
+        }
+        remoteVideoRef.current.play().catch((err) => {
+          console.warn('Remote video autoplay blocked:', err);
+        });
+      }
+
+      setPeerConnected(true);
+      setBothJoined(true);
     };
 
     // ICE Candidate handler
@@ -586,6 +671,7 @@ export function MeetingRoomPage() {
     };
 
     pc.onconnectionstatechange = () => {
+      console.log('WebRTC connection state:', pc.connectionState);
       if (pc.connectionState === 'connected') {
         setPeerConnected(true);
         setBothJoined(true);
@@ -649,7 +735,10 @@ export function MeetingRoomPage() {
                 // hasn't fired yet or failed silently.
                 try {
                   const pc = createPeerConnection(meetingData, activeStream);
-                  const offer = await pc.createOffer();
+                  const offer = await pc.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: true,
+                  });
                   await pc.setLocalDescription(offer);
                   ws.send(
                     JSON.stringify({
@@ -672,7 +761,10 @@ export function MeetingRoomPage() {
             // from room-status handler — that means we already sent an offer)
             if (!peerConnectionRef.current) {
               const pc = createPeerConnection(meetingData, activeStream);
-              const offer = await pc.createOffer();
+              const offer = await pc.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true,
+              });
               await pc.setLocalDescription(offer);
 
               ws.send(
@@ -695,7 +787,10 @@ export function MeetingRoomPage() {
             }
 
             await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
-            const answer = await pcAns.createAnswer();
+            const answer = await pcAns.createAnswer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true,
+            });
             await pcAns.setLocalDescription(answer);
 
             ws.send(
@@ -1172,6 +1267,7 @@ export function MeetingRoomPage() {
   // ─── Active Video Meeting Room View ──────────────────────────────────────
   return (
     <div
+      onClick={unlockAudio}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -1360,6 +1456,41 @@ export function MeetingRoomPage() {
       <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden' }}>
         {/* Video Area */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#020617' }}>
+          {/* Dedicated Remote Audio Player (Unmuted, Always Active) */}
+          <audio
+            ref={remoteAudioRef}
+            autoPlay
+            playsInline
+          />
+
+          {/* Autoplay Audio Block Banner */}
+          {audioAutoplayBlocked && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '1rem',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 50,
+                background: 'rgba(239, 68, 68, 0.95)',
+                color: '#fff',
+                padding: '0.6rem 1.25rem',
+                borderRadius: '8px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                cursor: 'pointer',
+              }}
+              onClick={unlockAudio}
+            >
+              <Mic size={18} />
+              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                Audio blocked by browser. Click here to enable sound!
+              </span>
+            </div>
+          )}
+
           {/* Remote Video (Peer) */}
           <video
             ref={remoteVideoRef}
