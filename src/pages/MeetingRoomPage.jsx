@@ -108,6 +108,7 @@ export function MeetingRoomPage() {
   const isRecognizingRef = useRef(false);
   const restartTimerRef = useRef(null);
   const restartAttemptsRef = useRef(0);
+  const startWatchdogTimerRef = useRef(null);
   const lastFinalTextRef = useRef('');
   const lastFinalTimeRef = useRef(0);
   const transcriptBottomRef = useRef(null);
@@ -630,24 +631,63 @@ export function MeetingRoomPage() {
     }
   };
 
-  const initSpeechRecognition = () => {
+  const clearStartWatchdog = () => {
+    if (startWatchdogTimerRef.current) {
+      clearTimeout(startWatchdogTimerRef.current);
+      startWatchdogTimerRef.current = null;
+    }
+  };
+
+  const cleanupSpeechInstance = () => {
+    if (recognitionRef.current) {
+      try {
+        const rec = recognitionRef.current;
+        rec.onstart = null;
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.onaudiostart = null;
+        rec.onspeechstart = null;
+        rec.onspeechend = null;
+        rec.onaudioend = null;
+        rec.abort();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+  };
+
+  const scheduleRestart = (delay = 200) => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
+    if (!shouldRecognizeRef.current) return;
+
+    restartAttemptsRef.current = (restartAttemptsRef.current || 0) + 1;
+    // Controlled exponential backoff after multiple rapid restarts
+    const backoff = restartAttemptsRef.current > 5 ? 1200 : delay;
+
+    restartTimerRef.current = setTimeout(() => {
+      if (!shouldRecognizeRef.current) return;
+      startRecognition();
+    }, backoff);
+  };
+
+  const startRecognition = () => {
+    if (!shouldRecognizeRef.current) return;
+    if (isStartingRef.current || isRecognizingRef.current) return;
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.warn('[SPEECH_RECOGNITION] SpeechRecognition API not supported in this browser');
       setTranscriptionStatus('unsupported');
-      return null;
+      return;
     }
 
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.onstart = null;
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.abort();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
+    // Always clean up any existing instance before instantiating a fresh one.
+    // In Chromium, re-calling .start() on a previously used SpeechRecognition object is invalid and causes silent lockups.
+    cleanupSpeechInstance();
 
     try {
       const recognition = new SpeechRecognition();
@@ -657,6 +697,7 @@ export function MeetingRoomPage() {
       recognition.lang = speechLangRef.current || 'en-US';
 
       recognition.onstart = () => {
+        clearStartWatchdog();
         isStartingRef.current = false;
         isRecognizingRef.current = true;
         restartAttemptsRef.current = 0;
@@ -678,10 +719,10 @@ export function MeetingRoomPage() {
           if (!text) continue;
 
           if (res.isFinal) {
-            // Prevent immediate duplicate sentence commit (same text within 3s)
+            // Prevent immediate duplicate sentence commit (same text within 2.5s)
             if (
               lastFinalTextRef.current === text &&
-              now - lastFinalTimeRef.current < 3000
+              now - lastFinalTimeRef.current < 2500
             ) {
               console.debug('[SPEECH_RECOGNITION] Suppressed duplicate final segment:', text);
               continue;
@@ -703,11 +744,13 @@ export function MeetingRoomPage() {
       recognition.onerror = (event) => {
         const error = event.error;
         console.warn(`[SPEECH_RECOGNITION] Error: ${error}`);
+        clearStartWatchdog();
         isStartingRef.current = false;
 
         if (error === 'not-allowed' || error === 'service-not-allowed') {
           shouldRecognizeRef.current = false;
           isRecognizingRef.current = false;
+          cleanupSpeechInstance();
           setTranscriptionStatus('permission_denied');
           setToast({
             type: 'warning',
@@ -722,103 +765,81 @@ export function MeetingRoomPage() {
         }
 
         if (error === 'aborted') {
-          // Aborted intentionally or via restart
+          // Aborted intentionally or by Chrome audio pipeline renegotiation (e.g. WebRTC peer connection)
+          isRecognizingRef.current = false;
+          cleanupSpeechInstance();
+          if (shouldRecognizeRef.current) {
+            scheduleRestart(350);
+          }
           return;
         }
 
+        // Other errors (network, audio-capture, etc.)
+        isRecognizingRef.current = false;
+        cleanupSpeechInstance();
         if (shouldRecognizeRef.current) {
           setTranscriptionStatus('reconnecting');
-          scheduleRestart(500);
+          scheduleRestart(600);
         }
       };
 
       recognition.onend = () => {
+        clearStartWatchdog();
         isStartingRef.current = false;
         isRecognizingRef.current = false;
-        console.log('[SPEECH_RECOGNITION] Ended (onend fired)');
+        cleanupSpeechInstance();
+        console.log('[SPEECH_RECOGNITION] Ended (onend fired) - cleaning up instance');
 
         // Clear interim caption on speech end
         setInterimCaption(null);
 
-        // If consultation is still active, schedule controlled automatic restart
+        // If consultation is still active, schedule controlled automatic restart with a fresh instance
         if (shouldRecognizeRef.current) {
-          setTranscriptionStatus('reconnecting');
-          scheduleRestart(250);
+          setTranscriptionStatus('transcribing');
+          scheduleRestart(180);
         }
       };
 
       recognitionRef.current = recognition;
-      return recognition;
-    } catch (err) {
-      console.warn('[SPEECH_RECOGNITION] Initialization failed:', err);
-      setTranscriptionStatus('unsupported');
-      return null;
-    }
-  };
-
-  const scheduleRestart = (delay = 250) => {
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-
-    if (!shouldRecognizeRef.current) return;
-
-    restartAttemptsRef.current = (restartAttemptsRef.current || 0) + 1;
-    // Controlled exponential backoff after multiple rapid restarts
-    const backoff = restartAttemptsRef.current > 4 ? 1200 : delay;
-
-    restartTimerRef.current = setTimeout(() => {
-      if (!shouldRecognizeRef.current) return;
-      startRecognition();
-    }, backoff);
-  };
-
-  const startRecognition = () => {
-    if (!shouldRecognizeRef.current) return;
-    if (isStartingRef.current || isRecognizingRef.current) return;
-
-    try {
-      let rec = recognitionRef.current;
-      if (!rec) {
-        rec = initSpeechRecognition();
-      }
-      if (!rec) return;
-
       isStartingRef.current = true;
-      rec.start();
-    } catch (err) {
-      isStartingRef.current = false;
-      console.warn('[SPEECH_RECOGNITION] Start failed, re-initializing instance:', err);
-      try {
-        const freshRec = initSpeechRecognition();
-        if (freshRec && shouldRecognizeRef.current) {
-          isStartingRef.current = true;
-          freshRec.start();
+
+      // Start watchdog to prevent permanent lockup if onstart fails to fire within 1500ms
+      clearStartWatchdog();
+      startWatchdogTimerRef.current = setTimeout(() => {
+        if (isStartingRef.current && !isRecognizingRef.current) {
+          console.warn('[SPEECH_RECOGNITION] Watchdog: onstart did not fire within 1500ms. Recovering lock...');
+          isStartingRef.current = false;
+          cleanupSpeechInstance();
+          if (shouldRecognizeRef.current) {
+            scheduleRestart(300);
+          }
         }
-      } catch (retryErr) {
-        isStartingRef.current = false;
-        scheduleRestart(800);
+      }, 1500);
+
+      recognition.start();
+    } catch (err) {
+      clearStartWatchdog();
+      isStartingRef.current = false;
+      isRecognizingRef.current = false;
+      cleanupSpeechInstance();
+      console.warn('[SPEECH_RECOGNITION] Start threw exception, scheduling fresh retry:', err);
+      if (shouldRecognizeRef.current) {
+        scheduleRestart(500);
       }
     }
   };
 
   const stopRecognition = () => {
     shouldRecognizeRef.current = false;
+    clearStartWatchdog();
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
     isStartingRef.current = false;
     isRecognizingRef.current = false;
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {
-        try { recognitionRef.current.abort(); } catch (e2) {}
-      }
-    }
+    restartAttemptsRef.current = 0;
+    cleanupSpeechInstance();
     setInterimCaption(null);
     console.log('[SPEECH_RECOGNITION] Stopped cleanly');
   };
@@ -830,15 +851,29 @@ export function MeetingRoomPage() {
     console.log(`[SPEECH_RECOGNITION] Switching language to: ${newLang}`);
 
     if (shouldRecognizeRef.current) {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.lang = newLang;
-          recognitionRef.current.stop();
-        } catch (e) {}
-      }
+      cleanupSpeechInstance();
       scheduleRestart(150);
     }
   };
+
+  // Auto-revive SpeechRecognition when tab regains focus or visibility
+  useEffect(() => {
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible' && shouldRecognizeRef.current) {
+        if (!isRecognizingRef.current && !isStartingRef.current) {
+          console.log('[SPEECH_RECOGNITION] Tab active/visible. Ensuring recognition is running...');
+          startRecognition();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, []);
 
   // ─── MediaRecorder Consultation Audio Capture ───────────────────────────
   const startAudioRecording = (stream) => {
@@ -1177,6 +1212,14 @@ export function MeetingRoomPage() {
             } catch (err) {
               console.error('Failed to create offer on peer-joined:', err);
             }
+
+            // Ensure speech recognition didn't get disrupted by peer join / WebRTC track renegotiation
+            setTimeout(() => {
+              if (shouldRecognizeRef.current && !isRecognizingRef.current && !isStartingRef.current) {
+                console.log('[SPEECH_RECOGNITION] Verifying recognition active after peer joined...');
+                startRecognition();
+              }
+            }, 600);
             break;
           }
 
@@ -1206,6 +1249,14 @@ export function MeetingRoomPage() {
             } catch (err) {
               console.error('Failed to handle incoming offer:', err);
             }
+
+            // Ensure speech recognition didn't get disrupted by incoming offer setup
+            setTimeout(() => {
+              if (shouldRecognizeRef.current && !isRecognizingRef.current && !isStartingRef.current) {
+                console.log('[SPEECH_RECOGNITION] Verifying recognition active after answering offer...');
+                startRecognition();
+              }
+            }, 600);
             break;
           }
 
