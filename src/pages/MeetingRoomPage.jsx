@@ -1043,12 +1043,30 @@ export function MeetingRoomPage() {
           case 'meeting-ended':
             setSessionState('completed');
             setToast({ type: 'info', message: 'Consultation has been concluded.' });
+
+            // Upload patient's audio recording BEFORE cleanup destroys the MediaRecorder
+            // This ensures the patient's voice is available for Whisper transcription
             if (meetingData?.id) {
-              consultationAiApi.saveLiveTranscript(meetingData.id, {
-                segments: liveTranscriptRef.current,
-              }).catch(() => {});
+              (async () => {
+                try {
+                  await stopAndUploadAudio(meetingData.id);
+                  console.log('Patient audio uploaded on meeting-ended');
+                } catch (audioErr) {
+                  console.warn('Patient audio upload on meeting-ended failed:', audioErr);
+                }
+                // Save live transcript segments as fallback
+                try {
+                  await consultationAiApi.saveLiveTranscript(meetingData.id, {
+                    segments: liveTranscriptRef.current,
+                  });
+                } catch (saveErr) {
+                  console.warn('Live transcript save on meeting-ended failed:', saveErr);
+                }
+                cleanupCall();
+              })();
+            } else {
+              cleanupCall();
             }
-            cleanupCall();
             break;
 
           case 'documents-updated':
@@ -1119,8 +1137,11 @@ export function MeetingRoomPage() {
         );
       }
 
-      if (user?.role === 'patient') {
-        stopAndUploadAudio(meeting?.id || meetingId);
+      // Upload audio for BOTH doctor and patient when leaving
+      try {
+        await stopAndUploadAudio(meeting?.id || meetingId);
+      } catch (uploadErr) {
+        console.warn('Audio upload on leave failed:', uploadErr);
       }
 
       cleanupCall();
@@ -1168,6 +1189,12 @@ export function MeetingRoomPage() {
   const handleConfirmEndMeeting = async () => {
     setIsEnding(true);
     try {
+      // Stop speech recognition first so final segments are captured
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.stop(); } catch (e) {}
+      }
+
+      // Notify peer that meeting is ending (patient will upload their audio too)
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -1177,9 +1204,13 @@ export function MeetingRoomPage() {
         );
       }
 
-      // Stop speech recognition
-      if (speechRecognitionRef.current) {
-        try { speechRecognitionRef.current.stop(); } catch (e) {}
+      // Upload doctor's audio recording BEFORE ending the meeting
+      // This is critical — without this, doctor's voice is never transcribed by Whisper
+      try {
+        await stopAndUploadAudio(meeting.id);
+        console.log('Doctor audio uploaded successfully for Whisper transcription');
+      } catch (audioErr) {
+        console.warn('Doctor audio upload failed (live transcript will still be used):', audioErr);
       }
 
       // Save live transcript to backend (this auto-triggers AI Consultation Summary!)
@@ -1197,6 +1228,18 @@ export function MeetingRoomPage() {
       await meetingApi.endMeeting(meeting.id, {
         doctor_notes: doctorNotes.trim() || undefined,
       });
+
+      // Trigger Whisper audio transcription if audio files were uploaded
+      // This produces a much more accurate transcript than the live SpeechRecognition API
+      // Wait 3s for patient's audio upload to arrive (they upload in parallel on meeting-ended event)
+      try {
+        await new Promise((r) => setTimeout(r, 3000));
+        await consultationAiApi.startTranscription(meeting.id);
+        console.log('Whisper transcription pipeline triggered');
+      } catch (transcribeErr) {
+        // Non-fatal — live transcript is already saved as fallback
+        console.warn('Whisper transcription trigger failed (live transcript is the fallback):', transcribeErr);
+      }
 
       setShowEndModal(false);
       setSessionState('completed');
