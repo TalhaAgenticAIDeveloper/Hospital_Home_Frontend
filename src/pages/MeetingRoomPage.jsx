@@ -33,11 +33,13 @@ import {
   List,
   Star,
   Pill,
+  MessageSquare,
 } from 'lucide-react';
 import { DoctorRatingModal } from '../components/patient/DoctorRatingModal';
 import { PrescriptionWriter } from '../components/doctor/PrescriptionWriter';
 import { PrescriptionView } from '../components/patient/PrescriptionView';
 import { AIExtractionReview } from '../components/doctor/AIExtractionReview';
+import { ConsultationSummaryModal } from '../components/doctor/ConsultationSummaryModal';
 import { ratingApi } from '../api/rating';
 import { prescriptionApi } from '../api/prescription';
 import { consultationAiApi } from '../api/consultationAi';
@@ -89,6 +91,15 @@ export function MeetingRoomPage() {
   const [aiDraftState, setAiDraftState] = useState(null); // null | 'processing' | 'ready' | 'failed'
   const [aiDraftMessage, setAiDraftMessage] = useState('');
   const aiPollingTimerRef = useRef(null);
+
+  // ─── Live Transcription & Consultation AI Summary States ─────────────────
+  const [showConsultationSummary, setShowConsultationSummary] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState([]);
+  const liveTranscriptRef = useRef([]);
+  const [showLiveTranscriptDrawer, setShowLiveTranscriptDrawer] = useState(false);
+  const [interimCaption, setInterimCaption] = useState(null);
+  const speechRecognitionRef = useRef(null);
+  const callStartTimeRef = useRef(Date.now());
 
   // ─── Document Panel States ────────────────────────────────────────────
   const [showDocPanel, setShowDocPanel] = useState(false);
@@ -518,6 +529,107 @@ export function MeetingRoomPage() {
     return () => clearInterval(id);
   }, [meeting, sessionState]);
 
+  // ─── Live Speech-to-Text Transcription ──────────────────────────────────
+  const startLiveTranscription = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('SpeechRecognition API not available in this browser');
+      return;
+    }
+
+    try {
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.stop(); } catch (e) {}
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        let interimText = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          const transcriptText = res[0].transcript.trim();
+
+          if (res.isFinal && transcriptText) {
+            const speakerRole = user?.role === 'doctor' ? 'doctor' : 'patient';
+            const speakerDisplayName = user?.role === 'doctor'
+              ? (user?.full_name || 'Dr. ' + (user?.last_name || 'Doctor'))
+              : (user?.full_name || 'Patient');
+
+            const segment = {
+              id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+              speaker: speakerRole,
+              speakerName: speakerDisplayName,
+              text: transcriptText,
+              timestamp: new Date().toISOString(),
+              start_time: Math.max(0, Math.floor((Date.now() - callStartTimeRef.current) / 1000)),
+            };
+
+            setLiveTranscript((prev) => {
+              const updated = [...prev, segment];
+              liveTranscriptRef.current = updated;
+              return updated;
+            });
+
+            setInterimCaption({
+              speaker: speakerRole,
+              speakerName: speakerDisplayName,
+              text: transcriptText,
+            });
+
+            setTimeout(() => {
+              setInterimCaption((curr) => (curr?.text === transcriptText ? null : curr));
+            }, 4000);
+
+            // Broadcast to peer via WebSocket
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(
+                JSON.stringify({
+                  type: 'transcript-segment',
+                  segment,
+                })
+              );
+            }
+          } else {
+            interimText += transcriptText;
+          }
+        }
+
+        if (interimText) {
+          const speakerDisplayName = user?.role === 'doctor' ? 'Doctor (You)' : 'You';
+          setInterimCaption({
+            speaker: user?.role,
+            speakerName: speakerDisplayName,
+            text: interimText,
+          });
+        }
+      };
+
+      recognition.onerror = (e) => {
+        if (e.error !== 'no-speech') {
+          console.warn('SpeechRecognition error:', e.error);
+        }
+      };
+
+      recognition.onend = () => {
+        // Auto-restart if mic is enabled
+        if (!localStreamRef.current?.getAudioTracks()[0]?.enabled) return;
+        try {
+          recognition.start();
+        } catch (e) {}
+      };
+
+      recognition.start();
+      speechRecognitionRef.current = recognition;
+      console.log('Live consultation transcription initialized');
+    } catch (err) {
+      console.warn('Could not start live SpeechRecognition:', err);
+    }
+  };
+
   // ─── MediaRecorder Consultation Audio Capture ───────────────────────────
   const startAudioRecording = (stream) => {
     if (!stream) return;
@@ -652,6 +764,7 @@ export function MeetingRoomPage() {
         setLocalStream(stream);
         setMediaStatus('ready');
         startAudioRecording(stream);
+        startLiveTranscription();
       } catch (videoErr) {
         console.warn('Video acquisition failed or timed out. Trying audio-only:', videoErr);
 
@@ -672,6 +785,7 @@ export function MeetingRoomPage() {
           setIsVideoMuted(true);
           setMediaStatus('no-camera');
           startAudioRecording(stream);
+          startLiveTranscription();
         } catch (audioErr) {
           console.warn('Microphone also unavailable/blocked:', audioErr);
           setMediaStatus('blocked');
@@ -908,11 +1022,31 @@ export function MeetingRoomPage() {
             setToast({ type: 'info', message: 'The other participant has left the consultation.' });
             break;
 
+          case 'transcript-segment':
+            if (data.segment && data.segment.text) {
+              setLiveTranscript((prev) => {
+                const next = [...prev, data.segment];
+                liveTranscriptRef.current = next;
+                return next;
+              });
+              setInterimCaption({
+                speaker: data.segment.speaker,
+                speakerName: data.segment.speakerName,
+                text: data.segment.text,
+              });
+              setTimeout(() => {
+                setInterimCaption((curr) => (curr?.text === data.segment.text ? null : curr));
+              }, 4000);
+            }
+            break;
+
           case 'meeting-ended':
             setSessionState('completed');
-            setToast({ type: 'info', message: 'Consultation has been ended by the other party.' });
+            setToast({ type: 'info', message: 'Consultation has been concluded.' });
             if (meetingData?.id) {
-              stopAndUploadAudio(meetingData.id);
+              consultationAiApi.saveLiveTranscript(meetingData.id, {
+                segments: liveTranscriptRef.current,
+              }).catch(() => {});
             }
             cleanupCall();
             break;
@@ -947,7 +1081,16 @@ export function MeetingRoomPage() {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioMuted(!audioTrack.enabled);
+        const muted = !audioTrack.enabled;
+        setIsAudioMuted(muted);
+
+        if (muted) {
+          if (speechRecognitionRef.current) {
+            try { speechRecognitionRef.current.stop(); } catch (e) {}
+          }
+        } else {
+          startLiveTranscription();
+        }
       }
     }
   };
@@ -1034,34 +1177,30 @@ export function MeetingRoomPage() {
         );
       }
 
-      // Stop & upload doctor audio track
-      const uploadRes = await stopAndUploadAudio(meeting.id);
+      // Stop speech recognition
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.stop(); } catch (e) {}
+      }
 
+      // Save live transcript to backend (this auto-triggers AI Consultation Summary!)
+      const segmentsToSave = liveTranscriptRef.current || [];
+      try {
+        await consultationAiApi.saveLiveTranscript(meeting.id, {
+          segments: segmentsToSave,
+          doctor_notes: doctorNotes.trim() || undefined,
+        });
+      } catch (saveErr) {
+        console.warn('Live transcript save notice:', saveErr);
+      }
+
+      // End meeting in DB
       await meetingApi.endMeeting(meeting.id, {
         doctor_notes: doctorNotes.trim() || undefined,
       });
 
-      // Always initiate AI preparation workflow for doctor
-      setAiDraftState('processing');
-      setAiDraftMessage('AI is preparing the prescription draft...');
-
-      try {
-        await consultationAiApi.startTranscription(meeting.id);
-      } catch (sttErr) {
-        console.warn('Auto-transcription notice:', sttErr);
-        // If audio transcription not available (e.g. mic was off), but doctor typed notes, trigger extraction directly
-        if (doctorNotes.trim()) {
-          try {
-            await consultationAiApi.startExtraction(meeting.id);
-          } catch (exErr) {
-            console.warn('Direct extraction from notes notice:', exErr);
-          }
-        }
-      }
-
       setShowEndModal(false);
       setSessionState('completed');
-      setToast({ type: 'info', message: 'Consultation ended. AI is preparing the prescription in the background.' });
+      setToast({ type: 'info', message: 'Consultation concluded. AI is preparing the consultation summary.' });
       cleanupCall();
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to end consultation.' });
@@ -1215,6 +1354,19 @@ export function MeetingRoomPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem', alignItems: 'center' }}>
             {user?.role === 'patient' && (
               <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <Button
+                  variant="primary"
+                  onClick={() => setShowConsultationSummary(true)}
+                  icon={<Sparkles size={16} />}
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    border: 'none',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                  }}
+                >
+                  View Consultation AI Summary
+                </Button>
+
                 {prescription && (
                   <Button
                     variant="secondary"
@@ -1257,187 +1409,38 @@ export function MeetingRoomPage() {
 
             {user?.role === 'doctor' && (
               <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                {prescription ? (
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', marginBottom: '0.5rem' }}>
                   <Button
-                    variant="secondary"
-                    onClick={() => setShowPrescriptionView(true)}
-                    icon={<Pill size={16} color="#059669" />}
+                    variant="primary"
+                    onClick={() => setShowConsultationSummary(true)}
+                    icon={<Sparkles size={16} />}
+                    style={{
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      border: 'none',
+                      boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                    }}
                   >
-                    View Issued Prescription ({prescription.medicines?.length || 0} Meds)
+                    View Consultation AI Summary
                   </Button>
-                ) : aiDraftState === 'processing' ? (
-                  <div
-                    style={{
-                      width: '100%',
-                      maxWidth: '520px',
-                      padding: '1.25rem 1.5rem',
-                      borderRadius: '16px',
-                      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(5, 150, 105, 0.04) 100%)',
-                      border: '1px solid rgba(16, 185, 129, 0.25)',
-                      boxShadow: '0 4px 20px -2px rgba(16, 185, 129, 0.1)',
-                      textAlign: 'center',
-                      marginBottom: '0.5rem',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
-                      <div
-                        style={{
-                          width: '28px',
-                          height: '28px',
-                          borderRadius: '8px',
-                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: '#ffffff',
-                        }}
-                      >
-                        <Sparkles size={16} />
-                      </div>
-                      <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                        AI is Preparing Prescription Draft
-                      </h4>
-                    </div>
-                    <p style={{ margin: '0 0 0.85rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                      {aiDraftMessage || 'Analyzing consultation dialogue and structuring medications in the background...'}
-                    </p>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1rem', color: '#059669', fontSize: '0.8rem', fontWeight: 600 }}>
-                      <RefreshCw size={14} className="animate-spin" />
-                      <span>Speech-to-Text & Clinical Analysis running...</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                      <Button
-                        variant="primary"
-                        onClick={() => setShowAIExtractionReview(true)}
-                        icon={<Sparkles size={15} />}
-                        style={{
-                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                          border: 'none',
-                          fontSize: '0.85rem',
-                        }}
-                      >
-                        View Live Progress
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setShowPrescriptionWriter(true)}
-                        icon={<Pill size={15} />}
-                        style={{ fontSize: '0.85rem' }}
-                      >
-                        Write Manually
-                      </Button>
-                    </div>
-                  </div>
-                ) : aiDraftState === 'ready' ? (
-                  <div
-                    style={{
-                      width: '100%',
-                      maxWidth: '520px',
-                      padding: '1.25rem 1.5rem',
-                      borderRadius: '16px',
-                      background: '#ecfdf5',
-                      border: '1px solid #a7f3d0',
-                      textAlign: 'center',
-                      marginBottom: '0.5rem',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
-                      <CheckCircle2 size={22} color="#059669" />
-                      <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#065f46' }}>
-                        Prescription Draft Ready for Review
-                      </h4>
-                    </div>
-                    <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#047857' }}>
-                      AI clinical extraction completed successfully. Please review, edit, or approve the prescription.
-                    </p>
-                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                      <Button
-                        variant="primary"
-                        onClick={() => setShowAIExtractionReview(true)}
-                        icon={<Sparkles size={16} />}
-                        style={{
-                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                          border: 'none',
-                          boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
-                        }}
-                      >
-                        Review & Approve Prescription
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setShowPrescriptionWriter(true)}
-                        icon={<Pill size={16} />}
-                      >
-                        Manual Prescription Writer
-                      </Button>
-                    </div>
-                  </div>
-                ) : aiDraftState === 'failed' ? (
-                  <div
-                    style={{
-                      width: '100%',
-                      maxWidth: '520px',
-                      padding: '1.25rem 1.5rem',
-                      borderRadius: '16px',
-                      background: '#fef2f2',
-                      border: '1px solid #fecaca',
-                      textAlign: 'center',
-                      marginBottom: '0.5rem',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
-                      <AlertCircle size={22} color="#dc2626" />
-                      <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#991b1b' }}>
-                        AI Documentation Notice
-                      </h4>
-                    </div>
-                    <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: '#b91c1c' }}>
-                      {aiDraftMessage || 'AI extraction could not be completed automatically.'}
-                    </p>
-                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                      <Button
-                        variant="primary"
-                        onClick={() => {
-                          setAiDraftState('processing');
-                          setAiDraftMessage('Retrying AI clinical extraction...');
-                          consultationAiApi.startExtraction(meeting?.id || meetingId).catch(() => {});
-                        }}
-                        icon={<RefreshCw size={15} />}
-                      >
-                        Retry AI Extraction
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setShowPrescriptionWriter(true)}
-                        icon={<Pill size={15} />}
-                      >
-                        Write Manually
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+
+                  {prescription ? (
                     <Button
-                      variant="primary"
-                      onClick={() => setShowAIExtractionReview(true)}
-                      icon={<Sparkles size={16} />}
-                      style={{
-                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                        border: 'none',
-                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
-                      }}
+                      variant="secondary"
+                      onClick={() => setShowPrescriptionView(true)}
+                      icon={<Pill size={16} color="#059669" />}
                     >
-                      AI Consultation Review & Prescription
+                      View Issued Prescription ({prescription.medicines?.length || 0} Meds)
                     </Button>
+                  ) : (
                     <Button
                       variant="secondary"
                       onClick={() => setShowPrescriptionWriter(true)}
                       icon={<Pill size={16} />}
                     >
-                      Manual Prescription Writer
+                      Write Prescription Manually
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1462,6 +1465,20 @@ export function MeetingRoomPage() {
             setHasRated(true);
             setUserRating(r.rating);
             setToast({ type: 'success', message: 'Thank you for your rating and feedback!' });
+          }}
+        />
+
+        {/* Consultation AI Summary Modal */}
+        <ConsultationSummaryModal
+          isOpen={showConsultationSummary}
+          onClose={() => setShowConsultationSummary(false)}
+          meetingId={meetingId}
+          isDoctor={user?.role === 'doctor'}
+          doctorName={meeting?.doctor_name || 'Doctor'}
+          patientName={meeting?.patient_name || 'Patient'}
+          onOpenPrescription={() => {
+            setShowConsultationSummary(false);
+            setShowPrescriptionWriter(true);
           }}
         />
 
@@ -2374,6 +2391,77 @@ export function MeetingRoomPage() {
           )}
         </button>
 
+        {/* Live Captions / Transcript Drawer Toggle */}
+        <button
+          onClick={() => setShowLiveTranscriptDrawer((v) => !v)}
+          title={showLiveTranscriptDrawer ? 'Hide Live Transcript' : 'Show Live Transcript'}
+          style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '50%',
+            background: showLiveTranscriptDrawer ? '#2563eb' : 'rgba(255,255,255,0.15)',
+            color: '#fff',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <MessageSquare size={22} />
+          {liveTranscript.length > 0 && (
+            <span
+              style={{
+                position: 'absolute',
+                top: '-2px',
+                right: '-2px',
+                background: '#10b981',
+                color: '#fff',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {liveTranscript.length}
+            </span>
+          )}
+        </button>
+
+        {/* Write Prescription (Doctor only, available during call) */}
+        {user?.role === 'doctor' && (
+          <button
+            onClick={() => setShowPrescriptionWriter(true)}
+            title="Write / Manage Prescription for Patient"
+            style={{
+              padding: '0 1.25rem',
+              height: '48px',
+              borderRadius: 'var(--radius-full)',
+              background: prescription
+                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: '#fff',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontWeight: 700,
+              fontSize: '0.875rem',
+              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+            }}
+          >
+            <Pill size={18} />
+            {prescription ? 'Prescription Saved' : 'Prescription'}
+          </button>
+        )}
+
         {/* Leave Call Button */}
         <button
           onClick={() => setShowLeaveWarning(true)}
@@ -2422,6 +2510,143 @@ export function MeetingRoomPage() {
           </button>
         )}
       </div>
+
+      {/* Live Subtitle Overlay */}
+      {interimCaption && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '95px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(15, 23, 42, 0.88)',
+            backdropFilter: 'blur(8px)',
+            padding: '0.55rem 1.25rem',
+            borderRadius: '24px',
+            border: '1px solid rgba(255,255,255,0.2)',
+            color: '#ffffff',
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            maxWidth: '80%',
+            zIndex: 30,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+          }}
+        >
+          <span
+            style={{
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              color: interimCaption.speaker === 'doctor' ? '#34d399' : '#818cf8',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {interimCaption.speakerName || (interimCaption.speaker === 'doctor' ? 'Doctor' : 'Patient')}:
+          </span>
+          <span style={{ color: '#f8fafc', wordBreak: 'break-word' }}>{interimCaption.text}</span>
+        </div>
+      )}
+
+      {/* Live Transcript Side Drawer */}
+      {showLiveTranscriptDrawer && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '75px',
+            right: '20px',
+            bottom: '95px',
+            width: '320px',
+            maxWidth: '90vw',
+            background: 'rgba(15, 23, 42, 0.95)',
+            backdropFilter: 'blur(12px)',
+            borderRadius: '16px',
+            border: '1px solid rgba(255,255,255,0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            zIndex: 40,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '0.85rem 1rem',
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fff', fontWeight: 700, fontSize: '0.9rem' }}>
+              <MessageSquare size={16} color="#34d399" />
+              <span>Live Consultation Transcript</span>
+            </div>
+            <button
+              onClick={() => setShowLiveTranscriptDrawer(false)}
+              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+            {liveTranscript.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.8rem', padding: '2rem 1rem' }}>
+                Speak into your microphone. Words spoken by both doctor and patient will appear live here.
+              </div>
+            ) : (
+              liveTranscript.map((seg, idx) => {
+                const isDoc = seg.speaker === 'doctor';
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      padding: '0.6rem 0.75rem',
+                      borderRadius: '10px',
+                      background: isDoc ? 'rgba(5, 150, 105, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                      border: `1px solid ${isDoc ? 'rgba(52, 211, 153, 0.25)' : 'rgba(129, 140, 248, 0.25)'}`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        color: isDoc ? '#34d399' : '#818cf8',
+                        marginBottom: '0.2rem',
+                      }}
+                    >
+                      {seg.speakerName || (isDoc ? 'Doctor' : 'Patient')}
+                    </div>
+                    <div style={{ fontSize: '0.825rem', color: '#f1f5f9', lineHeight: 1.4 }}>
+                      {seg.text}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* In-Call Prescription Writer Modal (Doctor only) */}
+      <PrescriptionWriter
+        isOpen={showPrescriptionWriter}
+        onClose={() => setShowPrescriptionWriter(false)}
+        meetingId={meetingId}
+        patientName={meeting?.patient_name}
+        onSuccess={(rx) => {
+          setPrescription(rx);
+          setToast({ type: 'success', message: 'Prescription saved to patient records!' });
+        }}
+      />
+
+      {/* In-Call Prescription View Modal */}
+      <PrescriptionView
+        isOpen={showPrescriptionView}
+        onClose={() => setShowPrescriptionView(false)}
+        prescription={prescription}
+      />
 
       {/* Blink animation for waiting indicator */}
       <style>{`

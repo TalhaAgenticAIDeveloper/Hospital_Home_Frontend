@@ -18,6 +18,17 @@ export const consultationAiApi = {
   },
 
   /**
+   * Save live transcript captured during video call and trigger AI summary.
+   * @param {string} meetingId
+   * @param {{ segments: Array, full_text?: string, doctor_notes?: string }} data
+   */
+  saveLiveTranscript: (meetingId, data) =>
+    apiFetch(`/api/v1/consultation-ai/${meetingId}/live-transcript`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /**
    * Start transcription of uploaded audio files.
    * @param {string} meetingId
    */
