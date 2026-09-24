@@ -42,7 +42,6 @@ import { AIExtractionReview } from '../components/doctor/AIExtractionReview';
 import { ConsultationSummaryModal } from '../components/doctor/ConsultationSummaryModal';
 import { prescriptionApi } from '../api/prescription';
 import { consultationAiApi } from '../api/consultationAi';
-import { createLiveAudioChunker } from '../utils/liveAudioChunker';
 
 
 const ICE_SERVERS = {
@@ -98,10 +97,20 @@ export function MeetingRoomPage() {
   const liveTranscriptRef = useRef([]);
   const [showLiveTranscriptDrawer, setShowLiveTranscriptDrawer] = useState(false);
   const [interimCaption, setInterimCaption] = useState(null);
-  const [transcriptionStatus, setTranscriptionStatus] = useState('connecting'); // 'transcribing' | 'connecting' | 'muted' | 'unavailable'
-  const liveChunkerRef = useRef(null);
+  const [speechLang, setSpeechLang] = useState('en-US'); // 'en-US' | 'ur-PK'
+  const speechLangRef = useRef('en-US');
+  const [transcriptionStatus, setTranscriptionStatus] = useState('transcribing'); // 'transcribing' | 'reconnecting' | 'permission_denied' | 'muted' | 'unsupported'
+
+  // Resilient SpeechRecognition lifecycle refs
+  const recognitionRef = useRef(null);
+  const shouldRecognizeRef = useRef(false);
+  const isStartingRef = useRef(false);
+  const isRecognizingRef = useRef(false);
+  const restartTimerRef = useRef(null);
+  const restartAttemptsRef = useRef(0);
+  const lastFinalTextRef = useRef('');
+  const lastFinalTimeRef = useRef(0);
   const transcriptBottomRef = useRef(null);
-  const speechRecognitionRef = useRef(null);
   const callStartTimeRef = useRef(Date.now());
 
   // Auto-scroll transcript drawer when new segments arrive
@@ -539,94 +548,295 @@ export function MeetingRoomPage() {
     return () => clearInterval(id);
   }, [meeting, sessionState]);
 
-  // ─── Optional Local Speech Caption Helper (Non-Authoritative) ───────────
-  const startLiveTranscription = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      return;
+  // ─── Resilient Web Speech Live Transcription Manager ──────────────────
+  const commitFinalSegment = (text) => {
+    if (!text || !text.trim()) return;
+    const trimmed = text.trim();
+    const role = user?.role === 'doctor' ? 'doctor' : 'patient';
+    const defaultName = role === 'doctor'
+      ? (meeting?.doctor_name ? `Dr. ${meeting.doctor_name}` : (user?.full_name || 'Doctor'))
+      : (meeting?.patient_name || (user?.full_name || 'Patient'));
+
+    const segment = {
+      id: `${role}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      speaker: role,
+      participant: role,
+      speakerName: defaultName,
+      text: trimmed,
+      is_final: true,
+      timestamp: parseFloat(Math.max(0, (Date.now() - callStartTimeRef.current) / 1000).toFixed(2)),
+      start_time: parseFloat(Math.max(0, (Date.now() - callStartTimeRef.current) / 1000).toFixed(2)),
+      lang: speechLangRef.current || 'en-US',
+    };
+
+    // 1. Commit to local live transcript state (with deduplication)
+    setLiveTranscript((prev) => {
+      const isDuplicate = prev.some(
+        (s) =>
+          s.id === segment.id ||
+          (s.speaker === segment.speaker &&
+            s.text.toLowerCase() === segment.text.toLowerCase() &&
+            Math.abs(s.timestamp - segment.timestamp) < 2.5)
+      );
+      if (isDuplicate) return prev;
+      const next = [...prev, segment];
+      next.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      liveTranscriptRef.current = next;
+      return next;
+    });
+
+    // 2. Clear interim caption
+    setInterimCaption(null);
+
+    // 3. Broadcast final segment to peer via WebSocket
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'transcript-segment',
+          ...segment,
+        })
+      );
     }
+    console.log(`[SPEECH_RECOGNITION] [FINAL] [${role.toUpperCase()}]: "${trimmed}"`);
+  };
 
-    try {
-      if (speechRecognitionRef.current) {
-        try { speechRecognitionRef.current.stop(); } catch (e) {}
-      }
+  const updateInterimSegment = (text) => {
+    if (!text || !text.trim()) return;
+    const trimmed = text.trim();
+    const role = user?.role === 'doctor' ? 'doctor' : 'patient';
+    const defaultName = role === 'doctor'
+      ? (meeting?.doctor_name ? `Dr. ${meeting.doctor_name}` : (user?.full_name || 'Doctor'))
+      : (meeting?.patient_name || (user?.full_name || 'Patient'));
 
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
+    // 1. Update local interim caption display
+    setInterimCaption({
+      speaker: role,
+      speakerName: defaultName,
+      text: trimmed,
+    });
 
-      recognition.onresult = (event) => {
-        let interimText = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i];
-          const transcriptText = res[0].transcript.trim();
-          if (transcriptText) {
-            interimText += ' ' + transcriptText;
-          }
-        }
-
-        if (interimText.trim()) {
-          const speakerDisplayName = user?.role === 'doctor' ? 'Doctor (You)' : 'You';
-          setInterimCaption({
-            speaker: user?.role,
-            speakerName: speakerDisplayName,
-            text: interimText.trim(),
-          });
-        }
-      };
-
-      recognition.onerror = () => {};
-      recognition.onend = () => {
-        if (!localStreamRef.current?.getAudioTracks()[0]?.enabled) return;
-        try {
-          recognition.start();
-        } catch (e) {}
-      };
-
-      recognition.start();
-      speechRecognitionRef.current = recognition;
-    } catch (err) {
-      // SpeechRecognition is purely optional local captioning; ignore errors
+    // 2. Broadcast interim caption to peer via WebSocket so remote sees live speech
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'transcript-segment',
+          speaker: role,
+          participant: role,
+          speakerName: defaultName,
+          text: trimmed,
+          is_final: false,
+        })
+      );
     }
   };
 
-  // ─── Real-Time Audio Chunking for Groq Whisper ──────────────────────────
-  const startLiveWhisperChunking = (stream, meetingData) => {
-    if (!stream) return;
-    const targetMeetingId = meetingData?.id || meeting?.id || meetingId;
-    if (!targetMeetingId) return;
-
-    if (liveChunkerRef.current) {
-      try { liveChunkerRef.current.stop(); } catch (e) {}
-      liveChunkerRef.current = null;
+  const initSpeechRecognition = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('[SPEECH_RECOGNITION] SpeechRecognition API not supported in this browser');
+      setTranscriptionStatus('unsupported');
+      return null;
     }
 
-    const role = user?.role || 'patient';
-    console.log(`[LIVE_CHUNKER] Initializing 3.5s chunk capture for role: ${role}`);
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onstart = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.abort();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
 
-    const chunker = createLiveAudioChunker({
-      stream,
-      participant: role,
-      meetingId: targetMeetingId,
-      onChunk: (chunkPayload) => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify(chunkPayload));
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.lang = speechLangRef.current || 'en-US';
+
+      recognition.onstart = () => {
+        isStartingRef.current = false;
+        isRecognizingRef.current = true;
+        restartAttemptsRef.current = 0;
+        if (shouldRecognizeRef.current) {
           setTranscriptionStatus('transcribing');
-        } else {
-          console.warn('[LIVE_CHUNKER] WebSocket not open, buffering or dropping chunk', chunkPayload.sequence);
-          setTranscriptionStatus('connecting');
         }
-      },
-      chunkDurationMs: 3500,
-    });
+        console.log(`[SPEECH_RECOGNITION] Started listening in language: ${recognition.lang}`);
+      };
 
-    if (chunker) {
-      chunker.start();
-      liveChunkerRef.current = chunker;
-      setTranscriptionStatus('transcribing');
-      console.log(`[LIVE_CHUNKER_STARTED] Live Whisper chunker active for ${role}`);
-    } else {
-      setTranscriptionStatus('unavailable');
+      recognition.onresult = (event) => {
+        if (!shouldRecognizeRef.current) return;
+
+        let interimText = '';
+        const now = Date.now();
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          const text = res[0]?.transcript?.trim();
+          if (!text) continue;
+
+          if (res.isFinal) {
+            // Prevent immediate duplicate sentence commit (same text within 3s)
+            if (
+              lastFinalTextRef.current === text &&
+              now - lastFinalTimeRef.current < 3000
+            ) {
+              console.debug('[SPEECH_RECOGNITION] Suppressed duplicate final segment:', text);
+              continue;
+            }
+
+            lastFinalTextRef.current = text;
+            lastFinalTimeRef.current = now;
+            commitFinalSegment(text);
+          } else {
+            interimText += (interimText ? ' ' : '') + text;
+          }
+        }
+
+        if (interimText) {
+          updateInterimSegment(interimText);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        const error = event.error;
+        console.warn(`[SPEECH_RECOGNITION] Error: ${error}`);
+        isStartingRef.current = false;
+
+        if (error === 'not-allowed' || error === 'service-not-allowed') {
+          shouldRecognizeRef.current = false;
+          isRecognizingRef.current = false;
+          setTranscriptionStatus('permission_denied');
+          setToast({
+            type: 'warning',
+            message: 'Microphone/speech recognition permission is required for live transcription.',
+          });
+          return;
+        }
+
+        if (error === 'no-speech') {
+          // Normal pause in speech — onend will follow and restart smoothly
+          return;
+        }
+
+        if (error === 'aborted') {
+          // Aborted intentionally or via restart
+          return;
+        }
+
+        if (shouldRecognizeRef.current) {
+          setTranscriptionStatus('reconnecting');
+          scheduleRestart(500);
+        }
+      };
+
+      recognition.onend = () => {
+        isStartingRef.current = false;
+        isRecognizingRef.current = false;
+        console.log('[SPEECH_RECOGNITION] Ended (onend fired)');
+
+        // Clear interim caption on speech end
+        setInterimCaption(null);
+
+        // If consultation is still active, schedule controlled automatic restart
+        if (shouldRecognizeRef.current) {
+          setTranscriptionStatus('reconnecting');
+          scheduleRestart(250);
+        }
+      };
+
+      recognitionRef.current = recognition;
+      return recognition;
+    } catch (err) {
+      console.warn('[SPEECH_RECOGNITION] Initialization failed:', err);
+      setTranscriptionStatus('unsupported');
+      return null;
+    }
+  };
+
+  const scheduleRestart = (delay = 250) => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
+    if (!shouldRecognizeRef.current) return;
+
+    restartAttemptsRef.current = (restartAttemptsRef.current || 0) + 1;
+    // Controlled exponential backoff after multiple rapid restarts
+    const backoff = restartAttemptsRef.current > 4 ? 1200 : delay;
+
+    restartTimerRef.current = setTimeout(() => {
+      if (!shouldRecognizeRef.current) return;
+      startRecognition();
+    }, backoff);
+  };
+
+  const startRecognition = () => {
+    if (!shouldRecognizeRef.current) return;
+    if (isStartingRef.current || isRecognizingRef.current) return;
+
+    try {
+      let rec = recognitionRef.current;
+      if (!rec) {
+        rec = initSpeechRecognition();
+      }
+      if (!rec) return;
+
+      isStartingRef.current = true;
+      rec.start();
+    } catch (err) {
+      isStartingRef.current = false;
+      console.warn('[SPEECH_RECOGNITION] Start failed, re-initializing instance:', err);
+      try {
+        const freshRec = initSpeechRecognition();
+        if (freshRec && shouldRecognizeRef.current) {
+          isStartingRef.current = true;
+          freshRec.start();
+        }
+      } catch (retryErr) {
+        isStartingRef.current = false;
+        scheduleRestart(800);
+      }
+    }
+  };
+
+  const stopRecognition = () => {
+    shouldRecognizeRef.current = false;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    isStartingRef.current = false;
+    isRecognizingRef.current = false;
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        try { recognitionRef.current.abort(); } catch (e2) {}
+      }
+    }
+    setInterimCaption(null);
+    console.log('[SPEECH_RECOGNITION] Stopped cleanly');
+  };
+
+  const handleLanguageChange = (newLang) => {
+    if (newLang === speechLang) return;
+    setSpeechLang(newLang);
+    speechLangRef.current = newLang;
+    console.log(`[SPEECH_RECOGNITION] Switching language to: ${newLang}`);
+
+    if (shouldRecognizeRef.current) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.lang = newLang;
+          recognitionRef.current.stop();
+        } catch (e) {}
+      }
+      scheduleRestart(150);
     }
   };
 
@@ -764,8 +974,8 @@ export function MeetingRoomPage() {
         setLocalStream(stream);
         setMediaStatus('ready');
         startAudioRecording(stream);
-        startLiveWhisperChunking(stream, meetingData);
-        startLiveTranscription();
+        shouldRecognizeRef.current = true;
+        startRecognition();
       } catch (videoErr) {
         console.warn('Video acquisition failed or timed out. Trying audio-only:', videoErr);
 
@@ -786,8 +996,8 @@ export function MeetingRoomPage() {
           setIsVideoMuted(true);
           setMediaStatus('no-camera');
           startAudioRecording(stream);
-          startLiveWhisperChunking(stream, meetingData);
-          startLiveTranscription();
+          shouldRecognizeRef.current = true;
+          startRecognition();
         } catch (audioErr) {
           console.warn('Microphone also unavailable/blocked:', audioErr);
           setMediaStatus('blocked');
@@ -1031,64 +1241,55 @@ export function MeetingRoomPage() {
             setToast({ type: 'info', message: 'The other participant has left the consultation.' });
             break;
 
-          case 'transcription_segment':
           case 'transcript-segment': {
-            const rawSeg = data.segment || {
-              id: `${data.participant}-${data.sequence}`,
-              participant: data.participant,
-              speaker: data.participant,
-              speakerName: data.speaker_name || (data.participant === 'doctor' ? 'Doctor' : 'Patient'),
-              sequence: data.sequence,
-              timestamp: data.timestamp,
-              text: data.text,
-            };
+            const isFinal = data.is_final !== false;
+            const speaker = data.speaker || data.participant || 'peer';
+            const speakerName = data.speakerName || data.speaker_name || (speaker === 'doctor' ? 'Doctor' : 'Patient');
+            const text = (data.text || '').trim();
+            if (!text) break;
 
-            const segText = (rawSeg.text || '').trim();
-            if (!segText) break;
+            if (!isFinal) {
+              // Remote peer's live interim speech preview
+              setInterimCaption({
+                speaker,
+                speakerName,
+                text,
+              });
+              setTimeout(() => {
+                setInterimCaption((curr) => (curr?.text === text ? null : curr));
+              }, 3500);
+            } else {
+              // Final committed segment from remote peer
+              const segment = {
+                id: data.id || `${speaker}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                speaker,
+                participant: speaker,
+                speakerName,
+                text,
+                is_final: true,
+                timestamp: typeof data.timestamp === 'number'
+                  ? data.timestamp
+                  : parseFloat(Math.max(0, (Date.now() - callStartTimeRef.current) / 1000).toFixed(2)),
+                start_time: data.start_time ?? data.timestamp ?? 0,
+              };
 
-            const isDocSeg = rawSeg.participant === 'doctor' || rawSeg.speaker === 'doctor';
-            const defaultName = isDocSeg
-              ? (meetingData?.doctor_name ? `Dr. ${meetingData.doctor_name}` : 'Doctor')
-              : (meetingData?.patient_name || 'Patient');
+              setLiveTranscript((prev) => {
+                const already = prev.some(
+                  (s) =>
+                    s.id === segment.id ||
+                    (s.speaker === segment.speaker &&
+                      s.text.toLowerCase() === segment.text.toLowerCase() &&
+                      Math.abs(s.timestamp - segment.timestamp) < 2.5)
+                );
+                if (already) return prev;
+                const next = [...prev, segment];
+                next.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+                liveTranscriptRef.current = next;
+                return next;
+              });
 
-            const segment = {
-              id: rawSeg.id || `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-              participant: isDocSeg ? 'doctor' : 'patient',
-              speaker: isDocSeg ? 'doctor' : 'patient',
-              speakerName: rawSeg.speakerName || rawSeg.speaker_name || defaultName,
-              text: segText,
-              timestamp: typeof rawSeg.timestamp === 'number' ? rawSeg.timestamp : (Date.now() - callStartTimeRef.current) / 1000,
-              start_time: rawSeg.start_time ?? rawSeg.timestamp ?? 0,
-              sequence: rawSeg.sequence,
-            };
-
-            // Deduplication by id and (participant + sequence)
-            setLiveTranscript((prev) => {
-              const exists = prev.some(
-                (s) =>
-                  (s.id && s.id === segment.id) ||
-                  (s.participant === segment.participant &&
-                    s.sequence !== undefined &&
-                    segment.sequence !== undefined &&
-                    s.sequence === segment.sequence)
-              );
-              if (exists) return prev;
-              const next = [...prev, segment];
-              next.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-              liveTranscriptRef.current = next;
-              return next;
-            });
-
-            // Update floating interim caption
-            setInterimCaption({
-              speaker: segment.speaker,
-              speakerName: segment.speakerName,
-              text: segText,
-            });
-
-            setTimeout(() => {
-              setInterimCaption((curr) => (curr?.text === segText ? null : curr));
-            }, 5000);
+              setInterimCaption(null);
+            }
             break;
           }
 
@@ -1155,15 +1356,13 @@ export function MeetingRoomPage() {
         setIsAudioMuted(muted);
 
         if (muted) {
-          liveChunkerRef.current?.setMuted(true);
+          shouldRecognizeRef.current = false;
+          stopRecognition();
           setTranscriptionStatus('muted');
-          if (speechRecognitionRef.current) {
-            try { speechRecognitionRef.current.stop(); } catch (e) {}
-          }
         } else {
-          liveChunkerRef.current?.setMuted(false);
+          shouldRecognizeRef.current = true;
           setTranscriptionStatus('transcribing');
-          startLiveTranscription();
+          startRecognition();
         }
       }
     }
@@ -1184,10 +1383,7 @@ export function MeetingRoomPage() {
     setShowLeaveWarning(false);
 
     try {
-      if (liveChunkerRef.current) {
-        try { liveChunkerRef.current.stop(); } catch (e) {}
-        liveChunkerRef.current = null;
-      }
+      stopRecognition();
 
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
@@ -1250,15 +1446,7 @@ export function MeetingRoomPage() {
   const handleConfirmEndMeeting = async () => {
     setIsEnding(true);
     try {
-      if (liveChunkerRef.current) {
-        try { liveChunkerRef.current.stop(); } catch (e) {}
-        liveChunkerRef.current = null;
-      }
-
-      // Stop speech recognition first so final segments are captured
-      if (speechRecognitionRef.current) {
-        try { speechRecognitionRef.current.stop(); } catch (e) {}
-      }
+      stopRecognition();
 
       // Notify peer that meeting is ending (patient will upload their audio too)
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -1319,12 +1507,7 @@ export function MeetingRoomPage() {
   };
 
   function cleanupCall() {
-    if (liveChunkerRef.current) {
-      try {
-        liveChunkerRef.current.stop();
-      } catch (e) {}
-      liveChunkerRef.current = null;
-    }
+    stopRecognition();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
@@ -2684,32 +2867,75 @@ export function MeetingRoomPage() {
             overflow: 'hidden',
           }}
         >
-          {/* Header */}
+          {/* Header & Language Selector */}
           <div
             style={{
-              padding: '0.85rem 1rem',
+              padding: '0.75rem 1rem',
               borderBottom: '1px solid rgba(255,255,255,0.1)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
+              gap: '0.5rem',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fff', fontWeight: 700, fontSize: '0.9rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem' }}>
               <MessageSquare size={16} color="#34d399" />
-              <span>Live Consultation Transcript</span>
+              <span>Live Transcript</span>
             </div>
-            <button
-              onClick={() => setShowLiveTranscriptDrawer(false)}
-              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
-            >
-              <X size={16} />
-            </button>
+
+            {/* Language Switcher */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <button
+                type="button"
+                onClick={() => handleLanguageChange('en-US')}
+                title="Transcribe English"
+                style={{
+                  padding: '2px 7px',
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  borderRadius: '5px',
+                  border: '1px solid',
+                  borderColor: speechLang === 'en-US' ? '#3b82f6' : 'rgba(255,255,255,0.15)',
+                  background: speechLang === 'en-US' ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
+                  color: speechLang === 'en-US' ? '#93c5fd' : '#94a3b8',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLanguageChange('ur-PK')}
+                title="اردو ٹرانسکرپشن (Transcribe Urdu)"
+                style={{
+                  padding: '2px 7px',
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  borderRadius: '5px',
+                  border: '1px solid',
+                  borderColor: speechLang === 'ur-PK' ? '#10b981' : 'rgba(255,255,255,0.15)',
+                  background: speechLang === 'ur-PK' ? 'rgba(16, 185, 129, 0.3)' : 'transparent',
+                  color: speechLang === 'ur-PK' ? '#6ee7b7' : '#94a3b8',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                اردو
+              </button>
+              <button
+                onClick={() => setShowLiveTranscriptDrawer(false)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '3px', marginLeft: '4px' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
           </div>
 
           {/* Status Indicator Bar */}
           <div
             style={{
-              padding: '0.45rem 1rem',
+              padding: '0.4rem 1rem',
               background: 'rgba(0, 0, 0, 0.35)',
               borderBottom: '1px solid rgba(255,255,255,0.07)',
               display: 'flex',
@@ -2727,7 +2953,7 @@ export function MeetingRoomPage() {
                   backgroundColor:
                     transcriptionStatus === 'transcribing'
                       ? '#10b981'
-                      : transcriptionStatus === 'connecting'
+                      : transcriptionStatus === 'reconnecting'
                       ? '#f59e0b'
                       : transcriptionStatus === 'muted'
                       ? '#94a3b8'
@@ -2741,12 +2967,14 @@ export function MeetingRoomPage() {
               />
               <span style={{ color: '#cbd5e1', fontWeight: 500 }}>
                 {transcriptionStatus === 'transcribing'
-                  ? '● Transcribing live (Groq Whisper)'
-                  : transcriptionStatus === 'connecting'
-                  ? '● Connecting signaling...'
+                  ? `● Transcribing (${speechLang === 'ur-PK' ? 'اردو' : 'English'})`
+                  : transcriptionStatus === 'reconnecting'
+                  ? '⟳ Reconnecting transcription...'
                   : transcriptionStatus === 'muted'
                   ? 'Microphone muted'
-                  : '⚠ Transcription unavailable'}
+                  : transcriptionStatus === 'permission_denied'
+                  ? '⚠ Permission required'
+                  : '⚠ Live transcription unavailable'}
               </span>
             </div>
             <span style={{ color: '#64748b', fontSize: '0.68rem', fontWeight: 600 }}>
@@ -2765,71 +2993,93 @@ export function MeetingRoomPage() {
               gap: '0.65rem',
             }}
           >
-            {liveTranscript.length === 0 ? (
+            {liveTranscript.length === 0 && !interimCaption ? (
               <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.8rem', padding: '2.5rem 1rem' }}>
                 <MessageSquare size={28} style={{ margin: '0 auto 0.75rem', opacity: 0.4 }} />
-                <p style={{ margin: 0 }}>Doctor and patient speech will appear live here in real-time.</p>
+                <p style={{ margin: 0 }}>Doctor and patient speech will appear live here.</p>
                 <p style={{ margin: '0.5rem 0 0', fontSize: '0.725rem', color: '#475569' }}>
-                  English, Urdu, and mixed speech supported via Groq Whisper.
+                  Select EN or اردو above to switch transcription language.
                 </p>
               </div>
             ) : (
-              liveTranscript.map((seg, idx) => {
-                const isDoc = seg.speaker === 'doctor' || seg.participant === 'doctor';
-                const timeStr = typeof seg.timestamp === 'number'
-                  ? `[${String(Math.floor(seg.timestamp / 60)).padStart(2, '0')}:${String(Math.floor(seg.timestamp % 60)).padStart(2, '0')}]`
-                  : '';
-                return (
-                  <div
-                    key={seg.id || idx}
-                    style={{
-                      padding: '0.65rem 0.8rem',
-                      borderRadius: '10px',
-                      background: isDoc ? 'rgba(5, 150, 105, 0.15)' : 'rgba(99, 102, 241, 0.15)',
-                      border: `1px solid ${isDoc ? 'rgba(52, 211, 153, 0.25)' : 'rgba(129, 140, 248, 0.25)'}`,
-                    }}
-                  >
+              <>
+                {liveTranscript.map((seg, idx) => {
+                  const isDoc = seg.speaker === 'doctor' || seg.participant === 'doctor';
+                  const timeStr = typeof seg.timestamp === 'number'
+                    ? `[${String(Math.floor(seg.timestamp / 60)).padStart(2, '0')}:${String(Math.floor(seg.timestamp % 60)).padStart(2, '0')}]`
+                    : '';
+                  return (
                     <div
+                      key={seg.id || idx}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: '0.25rem',
+                        padding: '0.65rem 0.8rem',
+                        borderRadius: '10px',
+                        background: isDoc ? 'rgba(5, 150, 105, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                        border: `1px solid ${isDoc ? 'rgba(52, 211, 153, 0.25)' : 'rgba(129, 140, 248, 0.25)'}`,
                       }}
                     >
-                      <span
+                      <div
                         style={{
-                          fontSize: '0.65rem',
-                          fontWeight: 700,
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          background: isDoc ? 'rgba(52, 211, 153, 0.2)' : 'rgba(129, 140, 248, 0.2)',
-                          color: isDoc ? '#34d399' : '#818cf8',
-                          letterSpacing: '0.5px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: '0.25rem',
                         }}
                       >
-                        {isDoc ? 'DOCTOR' : 'PATIENT'}
-                      </span>
-                      {timeStr && (
-                        <span style={{ fontSize: '0.65rem', color: '#64748b' }}>
-                          {timeStr}
+                        <span
+                          style={{
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            background: isDoc ? 'rgba(52, 211, 153, 0.2)' : 'rgba(129, 140, 248, 0.2)',
+                            color: isDoc ? '#34d399' : '#818cf8',
+                            letterSpacing: '0.5px',
+                          }}
+                        >
+                          {isDoc ? 'DOCTOR' : 'PATIENT'}
                         </span>
-                      )}
+                        {timeStr && (
+                          <span style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                            {timeStr}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        dir="auto"
+                        style={{
+                          fontSize: '0.85rem',
+                          color: '#f1f5f9',
+                          lineHeight: 1.45,
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {seg.text}
+                      </div>
                     </div>
-                    <div
-                      dir="auto"
-                      style={{
-                        fontSize: '0.85rem',
-                        color: '#f1f5f9',
-                        lineHeight: 1.45,
-                        wordBreak: 'break-word',
-                      }}
-                    >
-                      {seg.text}
+                  );
+                })}
+
+                {/* Interim Live Speech Preview */}
+                {interimCaption && interimCaption.text && (
+                  <div
+                    style={{
+                      padding: '0.6rem 0.8rem',
+                      borderRadius: '10px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px dashed rgba(255, 255, 255, 0.2)',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    <div style={{ fontSize: '0.65rem', fontWeight: 600, color: '#94a3b8', marginBottom: '0.2rem' }}>
+                      {interimCaption.speaker === 'doctor' ? 'Doctor (speaking...)' : 'Patient (speaking...)'}
+                    </div>
+                    <div dir="auto" style={{ fontSize: '0.825rem', color: '#cbd5e1', lineHeight: 1.4 }}>
+                      {interimCaption.text}
                     </div>
                   </div>
-                );
-              })
+                )}
+              </>
             )}
             <div ref={transcriptBottomRef} />
           </div>
