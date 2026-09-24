@@ -40,9 +40,9 @@ import { PrescriptionWriter } from '../components/doctor/PrescriptionWriter';
 import { PrescriptionView } from '../components/patient/PrescriptionView';
 import { AIExtractionReview } from '../components/doctor/AIExtractionReview';
 import { ConsultationSummaryModal } from '../components/doctor/ConsultationSummaryModal';
-import { ratingApi } from '../api/rating';
 import { prescriptionApi } from '../api/prescription';
 import { consultationAiApi } from '../api/consultationAi';
+import { createLiveAudioChunker } from '../utils/liveAudioChunker';
 
 
 const ICE_SERVERS = {
@@ -98,8 +98,18 @@ export function MeetingRoomPage() {
   const liveTranscriptRef = useRef([]);
   const [showLiveTranscriptDrawer, setShowLiveTranscriptDrawer] = useState(false);
   const [interimCaption, setInterimCaption] = useState(null);
+  const [transcriptionStatus, setTranscriptionStatus] = useState('connecting'); // 'transcribing' | 'connecting' | 'muted' | 'unavailable'
+  const liveChunkerRef = useRef(null);
+  const transcriptBottomRef = useRef(null);
   const speechRecognitionRef = useRef(null);
   const callStartTimeRef = useRef(Date.now());
+
+  // Auto-scroll transcript drawer when new segments arrive
+  useEffect(() => {
+    if (showLiveTranscriptDrawer && transcriptBottomRef.current) {
+      transcriptBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [liveTranscript, showLiveTranscriptDrawer]);
 
   // ─── Document Panel States ────────────────────────────────────────────
   const [showDocPanel, setShowDocPanel] = useState(false);
@@ -529,11 +539,10 @@ export function MeetingRoomPage() {
     return () => clearInterval(id);
   }, [meeting, sessionState]);
 
-  // ─── Live Speech-to-Text Transcription ──────────────────────────────────
+  // ─── Optional Local Speech Caption Helper (Non-Authoritative) ───────────
   const startLiveTranscription = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.warn('SpeechRecognition API not available in this browser');
       return;
     }
 
@@ -545,77 +554,29 @@ export function MeetingRoomPage() {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = 'en-US';
 
       recognition.onresult = (event) => {
         let interimText = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const res = event.results[i];
           const transcriptText = res[0].transcript.trim();
-
-          if (res.isFinal && transcriptText) {
-            const speakerRole = user?.role === 'doctor' ? 'doctor' : 'patient';
-            const speakerDisplayName = user?.role === 'doctor'
-              ? (user?.full_name || 'Dr. ' + (user?.last_name || 'Doctor'))
-              : (user?.full_name || 'Patient');
-
-            const segment = {
-              id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-              speaker: speakerRole,
-              speakerName: speakerDisplayName,
-              text: transcriptText,
-              timestamp: new Date().toISOString(),
-              start_time: Math.max(0, Math.floor((Date.now() - callStartTimeRef.current) / 1000)),
-            };
-
-            setLiveTranscript((prev) => {
-              const updated = [...prev, segment];
-              liveTranscriptRef.current = updated;
-              return updated;
-            });
-
-            setInterimCaption({
-              speaker: speakerRole,
-              speakerName: speakerDisplayName,
-              text: transcriptText,
-            });
-
-            setTimeout(() => {
-              setInterimCaption((curr) => (curr?.text === transcriptText ? null : curr));
-            }, 4000);
-
-            // Broadcast to peer via WebSocket
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              wsRef.current.send(
-                JSON.stringify({
-                  type: 'transcript-segment',
-                  segment,
-                })
-              );
-            }
-          } else {
-            interimText += transcriptText;
+          if (transcriptText) {
+            interimText += ' ' + transcriptText;
           }
         }
 
-        if (interimText) {
+        if (interimText.trim()) {
           const speakerDisplayName = user?.role === 'doctor' ? 'Doctor (You)' : 'You';
           setInterimCaption({
             speaker: user?.role,
             speakerName: speakerDisplayName,
-            text: interimText,
+            text: interimText.trim(),
           });
         }
       };
 
-      recognition.onerror = (e) => {
-        if (e.error !== 'no-speech') {
-          console.warn('SpeechRecognition error:', e.error);
-        }
-      };
-
+      recognition.onerror = () => {};
       recognition.onend = () => {
-        // Auto-restart if mic is enabled
         if (!localStreamRef.current?.getAudioTracks()[0]?.enabled) return;
         try {
           recognition.start();
@@ -624,9 +585,48 @@ export function MeetingRoomPage() {
 
       recognition.start();
       speechRecognitionRef.current = recognition;
-      console.log('Live consultation transcription initialized');
     } catch (err) {
-      console.warn('Could not start live SpeechRecognition:', err);
+      // SpeechRecognition is purely optional local captioning; ignore errors
+    }
+  };
+
+  // ─── Real-Time Audio Chunking for Groq Whisper ──────────────────────────
+  const startLiveWhisperChunking = (stream, meetingData) => {
+    if (!stream) return;
+    const targetMeetingId = meetingData?.id || meeting?.id || meetingId;
+    if (!targetMeetingId) return;
+
+    if (liveChunkerRef.current) {
+      try { liveChunkerRef.current.stop(); } catch (e) {}
+      liveChunkerRef.current = null;
+    }
+
+    const role = user?.role || 'patient';
+    console.log(`[LIVE_CHUNKER] Initializing 3.5s chunk capture for role: ${role}`);
+
+    const chunker = createLiveAudioChunker({
+      stream,
+      participant: role,
+      meetingId: targetMeetingId,
+      onChunk: (chunkPayload) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify(chunkPayload));
+          setTranscriptionStatus('transcribing');
+        } else {
+          console.warn('[LIVE_CHUNKER] WebSocket not open, buffering or dropping chunk', chunkPayload.sequence);
+          setTranscriptionStatus('connecting');
+        }
+      },
+      chunkDurationMs: 3500,
+    });
+
+    if (chunker) {
+      chunker.start();
+      liveChunkerRef.current = chunker;
+      setTranscriptionStatus('transcribing');
+      console.log(`[LIVE_CHUNKER_STARTED] Live Whisper chunker active for ${role}`);
+    } else {
+      setTranscriptionStatus('unavailable');
     }
   };
 
@@ -764,6 +764,7 @@ export function MeetingRoomPage() {
         setLocalStream(stream);
         setMediaStatus('ready');
         startAudioRecording(stream);
+        startLiveWhisperChunking(stream, meetingData);
         startLiveTranscription();
       } catch (videoErr) {
         console.warn('Video acquisition failed or timed out. Trying audio-only:', videoErr);
@@ -785,6 +786,7 @@ export function MeetingRoomPage() {
           setIsVideoMuted(true);
           setMediaStatus('no-camera');
           startAudioRecording(stream);
+          startLiveWhisperChunking(stream, meetingData);
           startLiveTranscription();
         } catch (audioErr) {
           console.warn('Microphone also unavailable/blocked:', audioErr);
@@ -911,14 +913,21 @@ export function MeetingRoomPage() {
 
     ws.onopen = () => {
       console.log('Connected to meeting signaling server:', wsUrl);
+      setTranscriptionStatus('transcribing');
     };
 
     ws.onerror = (err) => {
       console.error('Signaling WebSocket error:', err);
+      setTranscriptionStatus('connecting');
       setToast({
         type: 'error',
         message: 'Could not connect to video signaling server. Please check your network or server proxy.',
       });
+    };
+
+    ws.onclose = (e) => {
+      console.log('Signaling WebSocket closed:', e.code, e.reason);
+      setTranscriptionStatus('connecting');
     };
 
     ws.onmessage = async (event) => {
@@ -1022,23 +1031,66 @@ export function MeetingRoomPage() {
             setToast({ type: 'info', message: 'The other participant has left the consultation.' });
             break;
 
-          case 'transcript-segment':
-            if (data.segment && data.segment.text) {
-              setLiveTranscript((prev) => {
-                const next = [...prev, data.segment];
-                liveTranscriptRef.current = next;
-                return next;
-              });
-              setInterimCaption({
-                speaker: data.segment.speaker,
-                speakerName: data.segment.speakerName,
-                text: data.segment.text,
-              });
-              setTimeout(() => {
-                setInterimCaption((curr) => (curr?.text === data.segment.text ? null : curr));
-              }, 4000);
-            }
+          case 'transcription_segment':
+          case 'transcript-segment': {
+            const rawSeg = data.segment || {
+              id: `${data.participant}-${data.sequence}`,
+              participant: data.participant,
+              speaker: data.participant,
+              speakerName: data.speaker_name || (data.participant === 'doctor' ? 'Doctor' : 'Patient'),
+              sequence: data.sequence,
+              timestamp: data.timestamp,
+              text: data.text,
+            };
+
+            const segText = (rawSeg.text || '').trim();
+            if (!segText) break;
+
+            const isDocSeg = rawSeg.participant === 'doctor' || rawSeg.speaker === 'doctor';
+            const defaultName = isDocSeg
+              ? (meetingData?.doctor_name ? `Dr. ${meetingData.doctor_name}` : 'Doctor')
+              : (meetingData?.patient_name || 'Patient');
+
+            const segment = {
+              id: rawSeg.id || `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+              participant: isDocSeg ? 'doctor' : 'patient',
+              speaker: isDocSeg ? 'doctor' : 'patient',
+              speakerName: rawSeg.speakerName || rawSeg.speaker_name || defaultName,
+              text: segText,
+              timestamp: typeof rawSeg.timestamp === 'number' ? rawSeg.timestamp : (Date.now() - callStartTimeRef.current) / 1000,
+              start_time: rawSeg.start_time ?? rawSeg.timestamp ?? 0,
+              sequence: rawSeg.sequence,
+            };
+
+            // Deduplication by id and (participant + sequence)
+            setLiveTranscript((prev) => {
+              const exists = prev.some(
+                (s) =>
+                  (s.id && s.id === segment.id) ||
+                  (s.participant === segment.participant &&
+                    s.sequence !== undefined &&
+                    segment.sequence !== undefined &&
+                    s.sequence === segment.sequence)
+              );
+              if (exists) return prev;
+              const next = [...prev, segment];
+              next.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+              liveTranscriptRef.current = next;
+              return next;
+            });
+
+            // Update floating interim caption
+            setInterimCaption({
+              speaker: segment.speaker,
+              speakerName: segment.speakerName,
+              text: segText,
+            });
+
+            setTimeout(() => {
+              setInterimCaption((curr) => (curr?.text === segText ? null : curr));
+            }, 5000);
             break;
+          }
 
           case 'meeting-ended':
             setSessionState('completed');
@@ -1103,10 +1155,14 @@ export function MeetingRoomPage() {
         setIsAudioMuted(muted);
 
         if (muted) {
+          liveChunkerRef.current?.setMuted(true);
+          setTranscriptionStatus('muted');
           if (speechRecognitionRef.current) {
             try { speechRecognitionRef.current.stop(); } catch (e) {}
           }
         } else {
+          liveChunkerRef.current?.setMuted(false);
+          setTranscriptionStatus('transcribing');
           startLiveTranscription();
         }
       }
@@ -1128,6 +1184,11 @@ export function MeetingRoomPage() {
     setShowLeaveWarning(false);
 
     try {
+      if (liveChunkerRef.current) {
+        try { liveChunkerRef.current.stop(); } catch (e) {}
+        liveChunkerRef.current = null;
+      }
+
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -1189,6 +1250,11 @@ export function MeetingRoomPage() {
   const handleConfirmEndMeeting = async () => {
     setIsEnding(true);
     try {
+      if (liveChunkerRef.current) {
+        try { liveChunkerRef.current.stop(); } catch (e) {}
+        liveChunkerRef.current = null;
+      }
+
       // Stop speech recognition first so final segments are captured
       if (speechRecognitionRef.current) {
         try { speechRecognitionRef.current.stop(); } catch (e) {}
@@ -1253,6 +1319,12 @@ export function MeetingRoomPage() {
   };
 
   function cleanupCall() {
+    if (liveChunkerRef.current) {
+      try {
+        liveChunkerRef.current.stop();
+      } catch (e) {}
+      liveChunkerRef.current = null;
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
@@ -2599,19 +2671,20 @@ export function MeetingRoomPage() {
             top: '75px',
             right: '20px',
             bottom: '95px',
-            width: '320px',
+            width: '340px',
             maxWidth: '90vw',
-            background: 'rgba(15, 23, 42, 0.95)',
-            backdropFilter: 'blur(12px)',
+            background: 'rgba(15, 23, 42, 0.96)',
+            backdropFilter: 'blur(16px)',
             borderRadius: '16px',
             border: '1px solid rgba(255,255,255,0.15)',
             display: 'flex',
             flexDirection: 'column',
             zIndex: 40,
-            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
             overflow: 'hidden',
           }}
         >
+          {/* Header */}
           <div
             style={{
               padding: '0.85rem 1rem',
@@ -2627,25 +2700,90 @@ export function MeetingRoomPage() {
             </div>
             <button
               onClick={() => setShowLiveTranscriptDrawer(false)}
-              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
             >
               <X size={16} />
             </button>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+          {/* Status Indicator Bar */}
+          <div
+            style={{
+              padding: '0.45rem 1rem',
+              background: 'rgba(0, 0, 0, 0.35)',
+              borderBottom: '1px solid rgba(255,255,255,0.07)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.725rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor:
+                    transcriptionStatus === 'transcribing'
+                      ? '#10b981'
+                      : transcriptionStatus === 'connecting'
+                      ? '#f59e0b'
+                      : transcriptionStatus === 'muted'
+                      ? '#94a3b8'
+                      : '#ef4444',
+                  boxShadow:
+                    transcriptionStatus === 'transcribing'
+                      ? '0 0 8px #10b981'
+                      : 'none',
+                  animation: transcriptionStatus === 'transcribing' ? 'blink 2s infinite' : 'none',
+                }}
+              />
+              <span style={{ color: '#cbd5e1', fontWeight: 500 }}>
+                {transcriptionStatus === 'transcribing'
+                  ? '● Transcribing live (Groq Whisper)'
+                  : transcriptionStatus === 'connecting'
+                  ? '● Connecting signaling...'
+                  : transcriptionStatus === 'muted'
+                  ? 'Microphone muted'
+                  : '⚠ Transcription unavailable'}
+              </span>
+            </div>
+            <span style={{ color: '#64748b', fontSize: '0.68rem', fontWeight: 600 }}>
+              {liveTranscript.length} {liveTranscript.length === 1 ? 'line' : 'lines'}
+            </span>
+          </div>
+
+          {/* Transcript Content List */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '0.85rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem',
+            }}
+          >
             {liveTranscript.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.8rem', padding: '2rem 1rem' }}>
-                Speak into your microphone. Words spoken by both doctor and patient will appear live here.
+              <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.8rem', padding: '2.5rem 1rem' }}>
+                <MessageSquare size={28} style={{ margin: '0 auto 0.75rem', opacity: 0.4 }} />
+                <p style={{ margin: 0 }}>Doctor and patient speech will appear live here in real-time.</p>
+                <p style={{ margin: '0.5rem 0 0', fontSize: '0.725rem', color: '#475569' }}>
+                  English, Urdu, and mixed speech supported via Groq Whisper.
+                </p>
               </div>
             ) : (
               liveTranscript.map((seg, idx) => {
-                const isDoc = seg.speaker === 'doctor';
+                const isDoc = seg.speaker === 'doctor' || seg.participant === 'doctor';
+                const timeStr = typeof seg.timestamp === 'number'
+                  ? `[${String(Math.floor(seg.timestamp / 60)).padStart(2, '0')}:${String(Math.floor(seg.timestamp % 60)).padStart(2, '0')}]`
+                  : '';
                 return (
                   <div
-                    key={idx}
+                    key={seg.id || idx}
                     style={{
-                      padding: '0.6rem 0.75rem',
+                      padding: '0.65rem 0.8rem',
                       borderRadius: '10px',
                       background: isDoc ? 'rgba(5, 150, 105, 0.15)' : 'rgba(99, 102, 241, 0.15)',
                       border: `1px solid ${isDoc ? 'rgba(52, 211, 153, 0.25)' : 'rgba(129, 140, 248, 0.25)'}`,
@@ -2653,21 +2791,47 @@ export function MeetingRoomPage() {
                   >
                     <div
                       style={{
-                        fontSize: '0.7rem',
-                        fontWeight: 700,
-                        color: isDoc ? '#34d399' : '#818cf8',
-                        marginBottom: '0.2rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '0.25rem',
                       }}
                     >
-                      {seg.speakerName || (isDoc ? 'Doctor' : 'Patient')}
+                      <span
+                        style={{
+                          fontSize: '0.65rem',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          background: isDoc ? 'rgba(52, 211, 153, 0.2)' : 'rgba(129, 140, 248, 0.2)',
+                          color: isDoc ? '#34d399' : '#818cf8',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
+                        {isDoc ? 'DOCTOR' : 'PATIENT'}
+                      </span>
+                      {timeStr && (
+                        <span style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                          {timeStr}
+                        </span>
+                      )}
                     </div>
-                    <div style={{ fontSize: '0.825rem', color: '#f1f5f9', lineHeight: 1.4 }}>
+                    <div
+                      dir="auto"
+                      style={{
+                        fontSize: '0.85rem',
+                        color: '#f1f5f9',
+                        lineHeight: 1.45,
+                        wordBreak: 'break-word',
+                      }}
+                    >
                       {seg.text}
                     </div>
                   </div>
                 );
               })
             )}
+            <div ref={transcriptBottomRef} />
           </div>
         </div>
       )}
