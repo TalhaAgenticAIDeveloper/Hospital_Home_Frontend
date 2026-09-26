@@ -71,23 +71,51 @@ export function QuestionnaireView({
       const res = await onAnswerSubmitted(currentQ.id, currentInput.trim());
       if (res?.validation_status === 'valid') {
         setFeedback({ type: 'success', message: res.clarification_message || 'Saved successfully!' });
-        // Automatically advance after brief success state if not last question
         if (currentIndex < totalQuestions - 1) {
           setTimeout(() => {
             setCurrentIndex((prev) => prev + 1);
             setFeedback(null);
           }, 400);
         }
-      } else {
+      } else if (res?.validation_status === 'warning') {
         setFeedback({
           type: 'warning',
-          message: res?.clarification_message || 'Please review your input format.',
+          message: res.clarification_message || 'Please review this advisory note.',
+          canProceedAnyway: true,
+        });
+      } else {
+        setFeedback({
+          type: 'error',
+          message: res?.clarification_message || 'Please enter a valid response.',
         });
       }
     } catch (err) {
       setFeedback({
         type: 'error',
         message: err.message || 'Could not save answer. Please try again.',
+      });
+    } finally {
+      setIsSubmittingAnswer(false);
+    }
+  };
+
+  const handleProceedWithWarning = async () => {
+    setIsSubmittingAnswer(true);
+    try {
+      const res = await onAnswerSubmitted(currentQ.id, currentInput.trim(), { allow_warning: true });
+      if (res?.validation_status === 'valid' || res?.validation_status === 'warning') {
+        setFeedback({ type: 'success', message: 'Noted! Proceeding to next question.' });
+        if (currentIndex < totalQuestions - 1) {
+          setTimeout(() => {
+            setCurrentIndex((prev) => prev + 1);
+            setFeedback(null);
+          }, 350);
+        }
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Could not proceed. Please try again.',
       });
     } finally {
       setIsSubmittingAnswer(false);
@@ -193,6 +221,7 @@ export function QuestionnaireView({
                 fontSize: '0.85rem',
                 display: 'flex',
                 alignItems: 'center',
+                flexWrap: 'wrap',
                 gap: '0.5rem',
                 background:
                   feedback.type === 'error'
@@ -216,28 +245,64 @@ export function QuestionnaireView({
               }}
             >
               {feedback.type === 'error' ? (
-                <AlertCircle size={16} />
+                <AlertCircle size={16} style={{ flexShrink: 0 }} />
               ) : (
-                <CheckCircle2 size={16} />
+                <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
               )}
-              <span>{feedback.message}</span>
+              <span style={{ flex: 1, minWidth: '200px' }}>{feedback.message}</span>
+              {feedback.canProceedAnyway && (
+                <button
+                  type="button"
+                  onClick={handleProceedWithWarning}
+                  disabled={isSubmittingAnswer}
+                  style={{
+                    marginLeft: 'auto',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    background: '#f59e0b',
+                    color: '#ffffff',
+                    border: 'none',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'opacity 0.2s',
+                  }}
+                >
+                  {isSubmittingAnswer ? 'Processing...' : 'Continue Anyway →'}
+                </button>
+              )}
             </div>
           )}
 
           {/* Options / Input based on question_type */}
           <div className="pm-question-input-wrapper">
             {currentQ.question_type === 'select' && (Array.isArray(currentQ.options) ? currentQ.options : currentQ.options?.items) ? (
-              <div className="pm-options-grid">
-                {(Array.isArray(currentQ.options) ? currentQ.options : currentQ.options.items).map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    className={`pm-option-btn ${currentInput === opt ? 'selected' : ''}`}
-                    onClick={() => handleSelectOption(opt)}
-                  >
-                    {opt}
-                  </button>
-                ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', width: '100%' }}>
+                <div className="pm-options-grid">
+                  {(Array.isArray(currentQ.options) ? currentQ.options : currentQ.options.items).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      className={`pm-option-btn ${currentInput === opt ? 'selected' : ''}`}
+                      onClick={() => handleSelectOption(opt)}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ marginTop: '0.25rem' }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem', display: 'block', fontWeight: 500 }}>
+                    Or type your custom answer freely:
+                  </label>
+                  <input
+                    type="text"
+                    className="pm-form-input"
+                    placeholder="Type anything here (e.g. custom preference or routine)..."
+                    value={currentInput}
+                    onChange={(e) => setCurrentInput(e.target.value)}
+                  />
+                </div>
               </div>
             ) : currentQ.question_type === 'number' ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', maxWidth: '360px', width: '100%' }}>

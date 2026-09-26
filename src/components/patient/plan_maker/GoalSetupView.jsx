@@ -63,10 +63,6 @@ export function GoalSetupView({ onSubmit, isSubmitting }) {
       setError('Please provide a title for your wellness goal.');
       return;
     }
-    if (!targetDescription.trim() || targetDescription.length < 10) {
-      setError('Please describe your target outcome in a little more detail (at least 10 characters).');
-      return;
-    }
     setError('');
     onSubmit({
       category,
@@ -148,19 +144,18 @@ export function GoalSetupView({ onSubmit, isSubmitting }) {
           />
         </div>
 
-        {/* 3. Target Description */}
+        {/* 3. Target Description (Optional) */}
         <div className="pm-form-group">
           <label className="pm-form-label" htmlFor="goal-desc">
-            3. What specific outcome are you targeting?
+            3. What specific outcome are you targeting? <span style={{ fontSize: '0.85rem', fontWeight: 400, color: 'var(--text-secondary)' }}>(Optional)</span>
           </label>
           <textarea
             id="goal-desc"
             className="pm-form-textarea"
             rows={3}
-            placeholder="e.g. I want to lose weight sustainably, maintain high energy for office work, and include home-cooked meals like roti, daal, and chicken with a 400 kcal deficit."
+            placeholder="e.g. I want to lose weight sustainably, maintain high energy for office work (optional)."
             value={targetDescription}
             onChange={(e) => setTargetDescription(e.target.value)}
-            required
           />
         </div>
 

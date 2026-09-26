@@ -85,11 +85,12 @@ export function PlanMaker() {
   };
 
   // Handler: Answer Submission
-  const handleAnswerQuestion = async (questionId, rawAnswer) => {
+  const handleAnswerQuestion = async (questionId, rawAnswer, options = {}) => {
     if (!currentGoal) return null;
     const res = await patientPlanApi.answerQuestion(currentGoal.id, {
       question_id: questionId,
       raw_input: rawAnswer,
+      allow_warning: options.allow_warning || false,
     });
     // Refresh goal state to maintain updated answer list
     const updatedGoal = await patientPlanApi.getCurrentGoal();
