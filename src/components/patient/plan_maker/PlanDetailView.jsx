@@ -520,7 +520,14 @@ export function PlanDetailView({
           <div className="pm-chat-messages">
             {discussions.map((d) => (
               <div key={d.id} className={`pm-message-bubble ${d.role}`}>
-                <div>{d.content}</div>
+                <div>
+                  {d.content
+                    ? d.content
+                        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                        .split('PROPOSED_MODIFICATION:')[0]
+                        .trim()
+                    : ''}
+                </div>
 
                 {/* If message includes proposed modification */}
                 {d.proposed_modifications && (
