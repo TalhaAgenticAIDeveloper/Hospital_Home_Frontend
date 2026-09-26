@@ -10,6 +10,7 @@ import { PatientProfileEditor } from '../components/patient/PatientProfileEditor
 import { PatientPrescriptionsList } from '../components/patient/PatientPrescriptionsList';
 import { ReportExplainer } from '../components/patient/report_explainer/ReportExplainer';
 import { PlanMaker } from '../components/patient/plan_maker/PlanMaker';
+import { ConsultationHistory } from '../components/patient/ConsultationHistory';
 import {
   Video,
   Stethoscope,
@@ -21,9 +22,10 @@ import {
   Pill,
   Sparkles,
   HeartPulse,
+  ClipboardList,
 } from 'lucide-react';
 
-const VALID_TABS = ['book', 'appointments', 'prescriptions', 'documents', 'reports', 'plans', 'profile'];
+const VALID_TABS = ['book', 'appointments', 'prescriptions', 'history', 'documents', 'reports', 'plans', 'profile'];
 
 export function PatientDashboardPage() {
   const { user } = useAuth();
@@ -51,6 +53,7 @@ export function PatientDashboardPage() {
     { key: 'book', label: 'Find & Book Doctors', icon: Stethoscope },
     { key: 'appointments', label: 'My Consultations', icon: Video },
     { key: 'prescriptions', label: 'My Prescriptions', icon: Pill },
+    { key: 'history', label: 'Visit History', icon: ClipboardList },
     { key: 'documents', label: 'Medical Records', icon: FolderOpen },
     { key: 'reports', label: 'AI Report Explainer', icon: Sparkles },
     { key: 'plans', label: 'AI Wellness Plan', icon: HeartPulse, badge: 'AI', badgeVariant: 'success' },
@@ -63,6 +66,8 @@ export function PatientDashboardPage() {
         return { title: 'My Consultations' };
       case 'prescriptions':
         return { title: 'My Prescriptions' };
+      case 'history':
+        return { title: 'Visit History' };
       case 'documents':
         return { title: 'Medical Records' };
       case 'reports':
@@ -152,6 +157,11 @@ export function PatientDashboardPage() {
       {/* ── Tab Content: Prescriptions ── */}
       {activeTab === 'prescriptions' && (
         <PatientPrescriptionsList />
+      )}
+
+      {/* ── Tab Content: Visit History ── */}
+      {activeTab === 'history' && (
+        <ConsultationHistory />
       )}
 
       {/* ── Tab Content: Medical Documents Manager ── */}

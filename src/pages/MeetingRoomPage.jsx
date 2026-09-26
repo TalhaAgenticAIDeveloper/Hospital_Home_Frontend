@@ -34,12 +34,14 @@ import {
   Star,
   Pill,
   MessageSquare,
+  History,
 } from 'lucide-react';
 import { DoctorRatingModal } from '../components/patient/DoctorRatingModal';
 import { PrescriptionWriter } from '../components/doctor/PrescriptionWriter';
 import { PrescriptionView } from '../components/patient/PrescriptionView';
 import { AIExtractionReview } from '../components/doctor/AIExtractionReview';
 import { ConsultationSummaryModal } from '../components/doctor/ConsultationSummaryModal';
+import { PatientHistoryForDoctor } from '../components/doctor/PatientHistoryForDoctor';
 import { prescriptionApi } from '../api/prescription';
 import { consultationAiApi } from '../api/consultationAi';
 
@@ -93,6 +95,7 @@ export function MeetingRoomPage() {
 
   // ─── Live Transcription & Consultation AI Summary States ─────────────────
   const [showConsultationSummary, setShowConsultationSummary] = useState(false);
+  const [showPatientHistory, setShowPatientHistory] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState([]);
   const liveTranscriptRef = useRef([]);
   const [showLiveTranscriptDrawer, setShowLiveTranscriptDrawer] = useState(false);
@@ -1790,6 +1793,32 @@ export function MeetingRoomPage() {
                     </Button>
                   )}
                 </div>
+
+                {/* Patient Visit History Button */}
+                <Button
+                  variant="outline"
+                  onClick={() => setShowPatientHistory(!showPatientHistory)}
+                  icon={<History size={16} />}
+                  size="sm"
+                  style={{
+                    color: '#6366f1',
+                    borderColor: 'rgba(99, 102, 241, 0.3)',
+                    background: showPatientHistory ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
+                    marginTop: '0.25rem',
+                  }}
+                >
+                  {showPatientHistory ? 'Hide' : 'View'} Patient Visit History
+                </Button>
+
+                {/* Patient History Panel (inline) */}
+                {showPatientHistory && meeting?.patient_id && (
+                  <div style={{ width: '100%', maxWidth: '600px', marginTop: '0.75rem' }}>
+                    <PatientHistoryForDoctor
+                      patientId={meeting.patient_id}
+                      patientName={meeting?.patient_name}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
