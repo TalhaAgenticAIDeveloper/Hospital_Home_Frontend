@@ -44,9 +44,20 @@ export function QuestionnaireView({
 
   const currentQ = questions[currentIndex];
   const totalQuestions = questions.length;
+  const isLastQuestion = currentIndex === totalQuestions - 1;
+
+  const currentAnswer = answers.find((a) => a.question_id === currentQ?.id);
+  const isCurrentAnswerValid = currentAnswer?.validation_status === 'valid';
+  const isCurrentSaved = isCurrentAnswerValid && currentInput.trim() === (currentAnswer?.raw_input || '').trim();
+
   const answeredCount = answers.filter((a) => a.validation_status === 'valid').length;
   const progressPercent = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0;
   const isAllAnswered = answeredCount === totalQuestions && totalQuestions > 0;
+
+  // Disable Save & Next on the last question when it has been saved or all questions are completed
+  const isSaveNextDisabled =
+    isSubmittingAnswer ||
+    (isLastQuestion && (isAllAnswered || isCurrentSaved));
 
   // Sync existing answer when navigating to a question
   React.useEffect(() => {
@@ -70,8 +81,12 @@ export function QuestionnaireView({
     try {
       const res = await onAnswerSubmitted(currentQ.id, currentInput.trim());
       if (res?.validation_status === 'valid') {
-        setFeedback({ type: 'success', message: res.clarification_message || 'Saved successfully!' });
-        if (currentIndex < totalQuestions - 1) {
+        const isFinal = currentIndex === totalQuestions - 1;
+        setFeedback({
+          type: 'success',
+          message: res.clarification_message || (isFinal ? 'All questions completed! You can now generate your plan below.' : 'Saved successfully!'),
+        });
+        if (!isFinal) {
           setTimeout(() => {
             setCurrentIndex((prev) => prev + 1);
             setFeedback(null);
@@ -104,8 +119,12 @@ export function QuestionnaireView({
     try {
       const res = await onAnswerSubmitted(currentQ.id, currentInput.trim(), { allow_warning: true });
       if (res?.validation_status === 'valid' || res?.validation_status === 'warning') {
-        setFeedback({ type: 'success', message: 'Noted! Proceeding to next question.' });
-        if (currentIndex < totalQuestions - 1) {
+        const isFinal = currentIndex === totalQuestions - 1;
+        setFeedback({
+          type: 'success',
+          message: isFinal ? 'All questions completed! You can now generate your plan below.' : 'Noted! Proceeding to next question.',
+        });
+        if (!isFinal) {
           setTimeout(() => {
             setCurrentIndex((prev) => prev + 1);
             setFeedback(null);
@@ -305,20 +324,15 @@ export function QuestionnaireView({
                 </div>
               </div>
             ) : currentQ.question_type === 'number' ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', maxWidth: '360px', width: '100%' }}>
+              <div style={{ maxWidth: '420px', width: '100%' }}>
                 <input
                   type="text"
                   className="pm-form-input"
-                  placeholder={currentQ.unit ? `e.g. 70 ${currentQ.unit} or 70` : "Enter your answer (numbers or with units)..."}
+                  placeholder="Enter your answer with unit (e.g. 70 kg, 150 lb, 175 cm)..."
                   value={currentInput}
                   onChange={(e) => setCurrentInput(e.target.value)}
                   autoFocus
                 />
-                {currentQ.unit && (
-                  <span style={{ fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
-                    {currentQ.unit}
-                  </span>
-                )}
               </div>
             ) : currentQ.question_type === 'time' ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', maxWidth: '260px', width: '100%' }}>
@@ -361,10 +375,12 @@ export function QuestionnaireView({
                 type="submit"
                 variant="primary"
                 size="sm"
+                disabled={isSaveNextDisabled}
                 isLoading={isSubmittingAnswer}
-                icon={<ArrowRight size={15} />}
+                icon={isSaveNextDisabled ? <CheckCircle2 size={15} /> : <ArrowRight size={15} />}
+                title={isSaveNextDisabled ? "All questions completed. This is the last question." : undefined}
               >
-                Save & Next
+                {isLastQuestion && (isAllAnswered || isCurrentSaved) ? 'Save & Next (Last Question)' : 'Save & Next'}
               </Button>
             </div>
           </div>
