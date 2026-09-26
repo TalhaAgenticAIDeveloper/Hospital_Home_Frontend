@@ -8,6 +8,7 @@ import {
   Sparkles,
   ArrowRight,
   Clock,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '../../common/Button';
 
@@ -50,7 +51,7 @@ const CATEGORIES = [
   },
 ];
 
-export function GoalSetupView({ onSubmit, isSubmitting }) {
+export function GoalSetupView({ onSubmit, isSubmitting, errorMessage = '' }) {
   const [category, setCategory] = useState('weight_management');
   const [title, setTitle] = useState('');
   const [targetDescription, setTargetDescription] = useState('');
@@ -178,13 +179,34 @@ export function GoalSetupView({ onSubmit, isSubmitting }) {
           </select>
         </div>
 
+        {/* Active Error Banner right above submit button */}
+        {(error || errorMessage) && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              padding: '0.85rem 1.25rem',
+              marginTop: '1.25rem',
+              borderRadius: '10px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              color: '#b91c1c',
+              fontSize: '0.9rem',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+            }}
+          >
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <span>{error || errorMessage}</span>
+          </div>
+        )}
+
         {/* Submit Button */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.25rem' }}>
           <Button
             type="submit"
             variant="primary"
             size="lg"
-            isLoading={isSubmitting}
+            loading={isSubmitting}
             icon={<ArrowRight size={18} />}
           >
             Continue to Questionnaire

@@ -7,12 +7,14 @@ export function Button({
   size = 'md',
   block = false,
   loading = false,
+  isLoading = false,
   disabled = false,
   icon = null,
   onClick,
   className = '',
   ...props
 }) {
+  const isBusy = Boolean(loading || isLoading);
   const sizeClasses = {
     sm: 'btn-sm',
     md: '',
@@ -35,11 +37,11 @@ export function Button({
     <button
       type={type}
       className={btnClass}
-      disabled={disabled || loading}
+      disabled={disabled || isBusy}
       onClick={onClick}
       {...props}
     >
-      {loading ? (
+      {isBusy ? (
         <>
           <span className="btn-spinner" />
           <span>Processing...</span>
