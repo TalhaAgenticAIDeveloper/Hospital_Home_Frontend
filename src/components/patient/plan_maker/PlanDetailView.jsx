@@ -622,11 +622,12 @@ export function PlanDetailView({
                       )}
                     </div>
 
-                    {d.proposed_modifications.status === 'pending' && (
+                    {(!d.proposed_modifications.status || d.proposed_modifications.status === 'pending') && (
                       <div className="pm-mod-actions" style={{ marginTop: '0.75rem' }}>
                         <Button
                           variant="primary"
                           size="sm"
+                          disabled={isActionLoading}
                           onClick={() =>
                             onApplyModification({
                               action: 'accept',
@@ -641,6 +642,7 @@ export function PlanDetailView({
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={isActionLoading}
                           onClick={() =>
                             onApplyModification({
                               action: 'reject',
