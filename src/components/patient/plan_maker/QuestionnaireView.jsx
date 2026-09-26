@@ -6,6 +6,7 @@ import {
   Sparkles,
   CheckCircle2,
   AlertCircle,
+  SkipForward,
 } from 'lucide-react';
 import { Button } from '../../common/Button';
 
@@ -23,14 +24,15 @@ export function QuestionnaireView({
       question_id: q.id,
       raw_input: q.current_answer.raw_input,
       validation_status: q.current_answer.validation_status,
+      is_skipped: q.current_answer.is_skipped,
     }));
 
-  // Find index of first unanswered required question or default to 0
+  // Find index of first unanswered question (neither valid nor skipped) or default to 0
   const findInitialIndex = () => {
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const hasAnswer = answers.some(
-        (a) => a.question_id === q.id && a.validation_status === 'valid'
+        (a) => a.question_id === q.id && (a.validation_status === 'valid' || a.validation_status === 'skipped')
       );
       if (!hasAnswer) return i;
     }
@@ -47,10 +49,12 @@ export function QuestionnaireView({
   const isLastQuestion = currentIndex === totalQuestions - 1;
 
   const currentAnswer = answers.find((a) => a.question_id === currentQ?.id);
-  const isCurrentAnswerValid = currentAnswer?.validation_status === 'valid';
-  const isCurrentSaved = isCurrentAnswerValid && currentInput.trim() === (currentAnswer?.raw_input || '').trim();
+  const isCurrentAnswerValid = currentAnswer?.validation_status === 'valid' || currentAnswer?.validation_status === 'skipped';
+  const isCurrentSaved =
+    (isCurrentAnswerValid && currentInput.trim() === (currentAnswer?.raw_input || '').trim()) ||
+    (currentAnswer?.validation_status === 'skipped' && !currentInput.trim());
 
-  const answeredCount = answers.filter((a) => a.validation_status === 'valid').length;
+  const answeredCount = answers.filter((a) => a.validation_status === 'valid' || a.validation_status === 'skipped').length;
   const progressPercent = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0;
   const isAllAnswered = answeredCount === totalQuestions && totalQuestions > 0;
 
@@ -63,15 +67,23 @@ export function QuestionnaireView({
   React.useEffect(() => {
     if (currentQ) {
       const existing = answers.find((a) => a.question_id === currentQ.id);
-      setCurrentInput(existing?.raw_input || '');
+      // If it was skipped, leave input empty so user can freely type if they want to override
+      if (existing?.validation_status === 'skipped') {
+        setCurrentInput('');
+      } else {
+        setCurrentInput(existing?.raw_input || '');
+      }
       setFeedback(null);
     }
   }, [currentIndex, currentQ?.id]);
 
   const handleSubmitAnswer = async (e) => {
     if (e) e.preventDefault();
-    if (!currentInput.trim() && currentQ?.is_required) {
-      setFeedback({ type: 'error', message: 'This question requires an answer before continuing.' });
+    if (!currentInput.trim()) {
+      setFeedback({
+        type: 'warning',
+        message: 'Please enter an answer, or click "Skip Question" to proceed with standard recommendations.',
+      });
       return;
     }
 
@@ -108,6 +120,35 @@ export function QuestionnaireView({
       setFeedback({
         type: 'error',
         message: err.message || 'Could not save answer. Please try again.',
+      });
+    } finally {
+      setIsSubmittingAnswer(false);
+    }
+  };
+
+  const handleSkipQuestion = async () => {
+    if (!currentQ) return;
+    setIsSubmittingAnswer(true);
+    setFeedback(null);
+
+    try {
+      const res = await onAnswerSubmitted(currentQ.id, 'Skipped', { is_skipped: true });
+      const isFinal = currentIndex === totalQuestions - 1;
+      setFeedback({
+        type: 'success',
+        message: res?.clarification_message || (isFinal ? 'Question skipped. All questions completed! You can now generate your plan below.' : 'Question skipped. Proceeding with standard recommendations.'),
+      });
+      setCurrentInput('');
+      if (!isFinal) {
+        setTimeout(() => {
+          setCurrentIndex((prev) => prev + 1);
+          setFeedback(null);
+        }, 350);
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Could not skip question. Please try again.',
       });
     } finally {
       setIsSubmittingAnswer(false);
@@ -227,6 +268,25 @@ export function QuestionnaireView({
                   <HelpCircle size={13} style={{ display: 'inline', marginRight: '4px' }} />
                   {currentQ.help_text}
                 </p>
+              )}
+              {currentAnswer?.validation_status === 'skipped' && (
+                <div
+                  style={{
+                    marginTop: '0.45rem',
+                    fontSize: '0.785rem',
+                    color: '#6b7280',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    background: 'rgba(107, 114, 128, 0.1)',
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: '6px',
+                    fontWeight: 500,
+                  }}
+                >
+                  <SkipForward size={13} />
+                  <span>Question Skipped (Standard clinical recommendations will be used)</span>
+                </div>
               )}
             </div>
           </div>
@@ -370,7 +430,23 @@ export function QuestionnaireView({
               Previous
             </Button>
 
-            <div style={{ display: 'flex', gap: '0.65rem' }}>
+            <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isSubmittingAnswer}
+                onClick={handleSkipQuestion}
+                icon={<SkipForward size={14} />}
+                style={{
+                  borderColor: 'rgba(156, 163, 175, 0.45)',
+                  color: 'var(--text-secondary)',
+                }}
+                title="Skip this question and continue with standard clinical recommendations"
+              >
+                Skip Question
+              </Button>
+
               <Button
                 type="submit"
                 variant="primary"
