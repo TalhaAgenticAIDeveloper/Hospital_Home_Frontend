@@ -38,7 +38,23 @@ export function PlanDetailView({
   const [activeTab, setActiveTab] = useState('schedule'); // 'schedule', 'guidelines', 'chat'
   const [loggingItemId, setLoggingItemId] = useState(null);
 
-  const items = plan?.items || [];
+  const parseMinutes = (timeStr) => {
+    if (!timeStr || typeof timeStr !== 'string') return 9999;
+    const parts = timeStr.trim().split(':');
+    if (parts.length < 2) return 9999;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    return isNaN(h) || isNaN(m) ? 9999 : h * 60 + m;
+  };
+
+  const rawItems = plan?.items || [];
+  const items = [...rawItems]
+    .filter((item) => item.is_active !== false)
+    .sort((a, b) => {
+      const timeDiff = parseMinutes(a.time_of_day) - parseMinutes(b.time_of_day);
+      if (timeDiff !== 0) return timeDiff;
+      return (a.order_index ?? 0) - (b.order_index ?? 0);
+    });
   const discussions = plan?.discussions || [];
   const todayLogs = plan?.today_logs || [];
   const summary = plan?.daily_nutrition_summary;
