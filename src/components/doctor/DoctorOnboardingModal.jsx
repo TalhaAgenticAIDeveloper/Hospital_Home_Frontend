@@ -20,6 +20,7 @@ import {
   Circle,
   FileCheck,
   AlertCircle,
+  Coins,
 } from 'lucide-react';
 
 const STEPS = [
@@ -37,6 +38,7 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
     full_name: '',
     father_name: '',
     pmdc_registration_number: '',
+    consultation_fee: '',
     phone_number: '',
     specialization: '',
     years_of_experience: 0,
@@ -64,7 +66,8 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
         setFormData({
           full_name: profile.full_name || '',
           father_name: profile.father_name || '',
-          pmdc_registration_number: profile.pmdc_registration_number || profile.license_number || '',
+          pmdc_registration_number: profile.pmdc_registration_number || '',
+          consultation_fee: profile.consultation_fee != null ? profile.consultation_fee : '',
           phone_number: profile.phone_number || '',
           specialization: profile.specialization || '',
           years_of_experience: profile.years_of_experience ?? 0,
@@ -72,7 +75,12 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
           bio: profile.bio || '',
         });
 
-        if (profile.full_name && profile.father_name && profile.pmdc_registration_number) {
+        if (
+          profile.full_name &&
+          profile.father_name &&
+          profile.pmdc_registration_number &&
+          profile.consultation_fee != null
+        ) {
           setProfileSaved(true);
         }
       }
@@ -85,7 +93,10 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
     const { name, value, type } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: type === 'number' ? parseInt(value, 10) || 0 : value,
+      [name]:
+        type === 'number'
+          ? value === '' ? '' : parseFloat(value) || 0
+          : value,
     }));
     if (formErrors[name]) {
       setFormErrors((prev) => ({ ...prev, [name]: null }));
@@ -98,6 +109,11 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
     if (!formData.full_name.trim()) errors.full_name = 'Full Doctor Name is mandatory';
     if (!formData.father_name.trim()) errors.father_name = "Father's Name is mandatory";
     if (!formData.pmdc_registration_number.trim()) errors.pmdc_registration_number = 'PMDC Registration Number is mandatory';
+    if (formData.consultation_fee === '' || formData.consultation_fee === null || isNaN(formData.consultation_fee)) {
+      errors.consultation_fee = 'Consultation fee is mandatory';
+    } else if (Number(formData.consultation_fee) < 0) {
+      errors.consultation_fee = 'Consultation fee cannot be negative';
+    }
     if (formData.years_of_experience < 0) errors.years_of_experience = 'Experience cannot be negative';
 
     setFormErrors(errors);
@@ -107,7 +123,7 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
   const handleSaveProfile = async (e) => {
     if (e) e.preventDefault();
     if (!validateProfileForm()) {
-      setToast({ type: 'error', message: 'Please fill in all 3 mandatory fields (Full Name, Father Name, PMDC Number).' });
+      setToast({ type: 'error', message: 'Please fill in all mandatory fields (Full Name, Father Name, PMDC Number, Consultation Fee).' });
       return false;
     }
 
@@ -115,7 +131,11 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
     setToast(null);
 
     try {
-      await doctorApi.updateProfile(formData);
+      const payload = {
+        ...formData,
+        consultation_fee: Number(formData.consultation_fee),
+      };
+      await doctorApi.updateProfile(payload);
       setProfileSaved(true);
       setToast({ type: 'success', message: 'Profile details saved successfully!' });
       return true;
@@ -141,10 +161,18 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
   };
 
   const handleSubmitApplication = async () => {
-    if (!formData.full_name.trim() || !formData.father_name.trim() || !formData.pmdc_registration_number.trim()) {
+    if (
+      !formData.full_name.trim() ||
+      !formData.father_name.trim() ||
+      !formData.pmdc_registration_number.trim() ||
+      formData.consultation_fee === '' ||
+      formData.consultation_fee === null ||
+      isNaN(formData.consultation_fee) ||
+      Number(formData.consultation_fee) < 0
+    ) {
       setToast({
         type: 'error',
-        message: 'Full Name, Father Name, and PMDC Registration Number are mandatory to submit.',
+        message: 'Full Name, Father Name, PMDC Registration Number, and Consultation Fee are mandatory to submit.',
       });
       return;
     }
@@ -361,7 +389,7 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
           <div style={{ marginBottom: '1.25rem' }}>
             <h3 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>Enter Your Details</h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Full Name, Father Name, and PMDC Number are mandatory.
+              Full Name, Father Name, PMDC Number, and Consultation Fee are mandatory.
             </p>
           </div>
 
@@ -400,6 +428,21 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
               error={formErrors.pmdc_registration_number}
               icon={<ShieldCheck size={16} />}
               required
+            />
+
+            {/* Mandatory: Consultation Fee */}
+            <Input
+              label="Consultation Fee (PKR) *"
+              name="consultation_fee"
+              type="number"
+              value={formData.consultation_fee}
+              onChange={handleInputChange}
+              placeholder="e.g. 1500"
+              error={formErrors.consultation_fee}
+              icon={<Coins size={16} />}
+              required
+              min="0"
+              step="50"
             />
 
             {/* Optional: Specialization */}
@@ -505,6 +548,13 @@ export function DoctorOnboardingModal({ isOpen, onClose, onCompleted }) {
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>PMDC Reg. Number</span>
                 <p style={{ fontWeight: 700, margin: '2px 0 0', color: 'var(--primary)', fontFamily: 'monospace' }}>
                   {formData.pmdc_registration_number || 'Not provided'}
+                </p>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Consultation Fee</span>
+                <p style={{ fontWeight: 700, margin: '2px 0 0', color: '#047857', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  {formData.consultation_fee !== '' ? `Rs. ${Number(formData.consultation_fee).toLocaleString()}` : 'Not provided'}
                 </p>
               </div>
 

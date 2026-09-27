@@ -203,7 +203,14 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
             <div>
               <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>PMDC Reg. Number</span>
               <p style={{ fontWeight: 600, color: 'var(--primary)', fontFamily: 'monospace', marginTop: '2px' }}>
-                {doctorDetail.pmdc_registration_number || doctorDetail.license_number || 'N/A'}
+                {doctorDetail.pmdc_registration_number || 'N/A'}
+              </p>
+            </div>
+
+            <div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Consultation Fee</span>
+              <p style={{ fontWeight: 700, color: '#047857', marginTop: '2px' }}>
+                {doctorDetail.consultation_fee != null ? `Rs. ${Number(doctorDetail.consultation_fee).toLocaleString()}` : 'Not specified'}
               </p>
             </div>
 
@@ -268,7 +275,7 @@ export function DoctorReviewModal({ isOpen, onClose, doctorUserId, onReviewed })
 
             <div style={{ padding: '0.75rem 1rem', background: '#ecfdf5', borderRadius: 'var(--radius-sm)', borderLeft: '4px solid #10b981' }}>
               <p style={{ margin: 0, fontSize: '0.82rem', color: '#065f46' }}>
-                <strong>No document upload required:</strong> Verify this applicant against PMDC records using their <strong>PMDC Registration No. ({doctorDetail.pmdc_registration_number || doctorDetail.license_number})</strong>, <strong>Full Name ({doctorDetail.full_name})</strong>, and <strong>Father's Name ({doctorDetail.father_name || 'N/A'})</strong>.
+                <strong>No document upload required:</strong> Verify this applicant against PMDC records using their <strong>PMDC Registration No. ({doctorDetail.pmdc_registration_number || 'N/A'})</strong>, <strong>Full Name ({doctorDetail.full_name})</strong>, and <strong>Father's Name ({doctorDetail.father_name || 'N/A'})</strong>.
               </p>
             </div>
           </div>

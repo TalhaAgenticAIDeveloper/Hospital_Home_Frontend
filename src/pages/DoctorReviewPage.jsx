@@ -28,6 +28,7 @@ import {
   ExternalLink,
   Trash2,
   CheckCircle2,
+  Coins,
 } from 'lucide-react';
 
 export function DoctorReviewPage() {
@@ -146,7 +147,8 @@ export function DoctorReviewPage() {
   const infoFields = [
     { icon: User, label: 'Full Doctor Name', value: doctorDetail.full_name },
     { icon: Users, label: "Father's Name", value: doctorDetail.father_name },
-    { icon: ShieldCheck, label: 'PMDC Registration No.', value: doctorDetail.pmdc_registration_number || doctorDetail.license_number, mono: true },
+    { icon: ShieldCheck, label: 'PMDC Registration No.', value: doctorDetail.pmdc_registration_number, mono: true },
+    { icon: Coins, label: 'Consultation Fee', value: doctorDetail.consultation_fee != null ? `Rs. ${Number(doctorDetail.consultation_fee).toLocaleString()}` : 'Not specified' },
     { icon: Mail, label: 'Email Address', value: doctorDetail.email },
     { icon: Phone, label: 'Phone Number', value: doctorDetail.phone_number },
     { icon: Award, label: 'Specialization', value: doctorDetail.specialization },
@@ -374,7 +376,7 @@ export function DoctorReviewPage() {
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Council Registration</span>
                 <h4 style={{ margin: 0, fontSize: '1.25rem', fontFamily: 'monospace', color: 'var(--primary)' }}>
-                  {doctorDetail.pmdc_registration_number || doctorDetail.license_number || 'NOT PROVIDED'}
+                  {doctorDetail.pmdc_registration_number || 'NOT PROVIDED'}
                 </h4>
               </div>
             </div>

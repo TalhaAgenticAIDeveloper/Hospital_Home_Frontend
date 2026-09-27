@@ -18,6 +18,7 @@ import {
   Paperclip,
   AlertCircle,
   Star,
+  Coins,
 } from 'lucide-react';
 
 export function DoctorDirectory({ onMeetingBooked }) {
@@ -273,7 +274,30 @@ export function DoctorDirectory({ onMeetingBooked }) {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        color: '#065f46',
+                        background: '#ecfdf5',
+                        padding: '0.3rem 0.75rem',
+                        borderRadius: 'var(--radius-full)',
+                        border: '1px solid #a7f3d0',
+                      }}
+                      title="Consultation Fee"
+                    >
+                      <Coins size={14} color="#059669" />
+                      <span>
+                        {doc.consultation_fee != null
+                          ? `Fee: Rs. ${Number(doc.consultation_fee).toLocaleString()}`
+                          : 'Fee: Not specified'}
+                      </span>
+                    </div>
+
                     <span
                       style={{
                         fontSize: '0.8rem',
@@ -408,12 +432,32 @@ export function DoctorDirectory({ onMeetingBooked }) {
               Confirm Video Consultation
             </h3>
 
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.85rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
-              <div><strong>Date:</strong> {new Date(selectedSlot.start_time).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
-              <div style={{ marginTop: '4px' }}>
-                <strong>Time:</strong> {new Date(selectedSlot.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(selectedSlot.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </div>
-            </div>
+            {(() => {
+              const selectedDoctor = doctors.find((d) => d.doctor_id === selectedSlot.doctor_id);
+              return (
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.85rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
+                  {selectedDoctor && (
+                    <div style={{ marginBottom: '6px' }}>
+                      <strong>Doctor:</strong> Dr. {selectedDoctor.full_name || 'Specialist'} ({selectedDoctor.specialization || 'General Physician'})
+                    </div>
+                  )}
+                  <div><strong>Date:</strong> {new Date(selectedSlot.start_time).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                  <div style={{ marginTop: '4px' }}>
+                    <strong>Time:</strong> {new Date(selectedSlot.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(selectedSlot.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #86efac', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#065f46', fontWeight: 600 }}>
+                      <Coins size={15} /> Consultation Fee:
+                    </span>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#047857' }}>
+                      {selectedDoctor?.consultation_fee != null
+                        ? `Rs. ${Number(selectedDoctor.consultation_fee).toLocaleString()}`
+                        : 'Free / Unset'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Mandatory Reason Field */}
             <div className="form-group" style={{ marginBottom: '1.25rem' }}>
