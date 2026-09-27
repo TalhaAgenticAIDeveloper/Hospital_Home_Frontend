@@ -15,6 +15,11 @@ import {
 } from 'lucide-react';
 import { Button } from '../../common/Button';
 
+const stripAsterisks = (text) => {
+  if (!text) return '';
+  return String(text).replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1').replace(/\*/g, '').trim();
+};
+
 export function PlanDetailView({
   plan,
   onApprovePlan,
@@ -406,8 +411,8 @@ export function PlanDetailView({
 
                   {/* Body & Nutritional Impact */}
                   <div className="pm-item-body">
-                    <h4 className="pm-item-title">{item.title}</h4>
-                    <p className="pm-item-desc">{item.description}</p>
+                    <h4 className="pm-item-title">{stripAsterisks(item.title)}</h4>
+                    <p className="pm-item-desc">{stripAsterisks(item.description)}</p>
 
                     {/* Macro Tags */}
                     <div className="pm-item-nutrition-tags">
@@ -468,7 +473,7 @@ export function PlanDetailView({
             </h4>
             <ul style={{ paddingLeft: '1.2rem', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               {(plan.diet_guidelines?.items || plan.diet_guidelines || []).map((g, idx) => (
-                <li key={idx}>{g}</li>
+                <li key={idx}>{stripAsterisks(g)}</li>
               ))}
             </ul>
           </div>
@@ -481,7 +486,7 @@ export function PlanDetailView({
             </h4>
             <ul style={{ paddingLeft: '1.2rem', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               {(plan.lifestyle_guidelines?.items || plan.lifestyle_guidelines || []).map((h, idx) => (
-                <li key={idx}>{h}</li>
+                <li key={idx}>{stripAsterisks(h)}</li>
               ))}
             </ul>
           </div>
@@ -494,7 +499,7 @@ export function PlanDetailView({
             </h4>
             <ul style={{ paddingLeft: '1.2rem', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               {(plan.precautions?.items || plan.precautions || []).map((p, idx) => (
-                <li key={idx}>{p}</li>
+                <li key={idx}>{stripAsterisks(p)}</li>
               ))}
             </ul>
           </div>
@@ -522,10 +527,12 @@ export function PlanDetailView({
               <div key={d.id} className={`pm-message-bubble ${d.role}`}>
                 <div>
                   {d.content
-                    ? d.content
-                        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                        .split('PROPOSED_MODIFICATION:')[0]
-                        .trim()
+                    ? stripAsterisks(
+                        d.content
+                          .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                          .split('PROPOSED_MODIFICATION:')[0]
+                          .trim()
+                      )
                     : ''}
                 </div>
 
@@ -572,13 +579,13 @@ export function PlanDetailView({
                     <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', lineHeight: 1.5 }}>
                       {d.proposed_modifications.original_title && (
                         <div style={{ color: 'var(--text-secondary)' }}>
-                          <span style={{ fontWeight: 600 }}>Original:</span> {d.proposed_modifications.original_title}
+                          <span style={{ fontWeight: 600 }}>Original:</span> {stripAsterisks(d.proposed_modifications.original_title)}
                         </div>
                       )}
                       {d.proposed_modifications.proposed_title && (
                         <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '0.2rem' }}>
                           <span>{d.proposed_modifications.action_type === 'add' ? 'New Item: ' : 'Proposed Alternative: '}</span>
-                          {d.proposed_modifications.proposed_title}
+                          {stripAsterisks(d.proposed_modifications.proposed_title)}
                           {d.proposed_modifications.proposed_time && (
                             <span style={{ marginLeft: '0.5rem', fontSize: '0.78rem', color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '0.1rem 0.45rem', borderRadius: '4px' }}>
                               {d.proposed_modifications.proposed_time}
@@ -588,12 +595,18 @@ export function PlanDetailView({
                       )}
                       {d.proposed_modifications.proposed_description && (
                         <div style={{ marginTop: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.825rem' }}>
-                          {d.proposed_modifications.proposed_description}
+                          {stripAsterisks(d.proposed_modifications.proposed_description)}
                         </div>
                       )}
                       {d.proposed_modifications.impact_summary && (
                         <div style={{ marginTop: '0.45rem', padding: '0.45rem 0.65rem', borderRadius: '6px', background: 'rgba(59, 130, 246, 0.08)', color: '#1d4ed8', fontSize: '0.825rem', fontWeight: 500 }}>
-                          ⚡ <strong>Plan Impact:</strong> {d.proposed_modifications.impact_summary}
+                          ⚡ <strong>Plan Impact:</strong> {stripAsterisks(d.proposed_modifications.impact_summary)}
+                        </div>
+                      )}
+                      {d.proposed_modifications.adjusted_duration_weeks && (
+                        <div style={{ marginTop: '0.45rem', padding: '0.45rem 0.65rem', borderRadius: '6px', background: 'rgba(245, 158, 11, 0.12)', color: '#b45309', fontSize: '0.825rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span>📅</span>
+                          <span>Adjusted Goal Duration: {d.proposed_modifications.adjusted_duration_weeks} Weeks (Goal timeline revised for realistic results)</span>
                         </div>
                       )}
 
