@@ -20,6 +20,92 @@ const stripAsterisks = (text) => {
   return String(text).replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1').replace(/\*/g, '').trim();
 };
 
+const getCategoryDetails = (item) => {
+  const cat = (item?.category || '').toLowerCase();
+  const title = (item?.title || '').toLowerCase();
+  const time = item?.time_of_day || '';
+  const calories = item?.calories;
+  const caloriesBurned = item?.calories_burned;
+
+  const parseTime = (t) => {
+    if (!t || typeof t !== 'string') return null;
+    const parts = t.trim().split(':');
+    if (parts.length < 2) return null;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    return isNaN(h) || isNaN(m) ? null : h * 60 + m;
+  };
+  const minutes = parseTime(time);
+
+  let resolvedCat = cat;
+
+  const isExercise =
+    (caloriesBurned !== null && caloriesBurned !== undefined && caloriesBurned > 0) ||
+    /walk|run|workout|exercise|gym|cardio|yoga|stretch|hiit|cycling/i.test(title);
+
+  if (isExercise) {
+    resolvedCat = 'workout';
+  } else if (/evening/i.test(cat) && minutes !== null && minutes < 1080) {
+    // If tagged as evening/evening_activity but before 18:00 (6:00 PM)
+    if (calories && calories > 0) {
+      if (minutes < 600) resolvedCat = 'breakfast';
+      else if (minutes < 705) resolvedCat = 'morning_snack';
+      else if (minutes < 885) resolvedCat = 'lunch';
+      else resolvedCat = 'afternoon_snack';
+    } else {
+      resolvedCat = minutes < 660 ? 'morning_routine' : 'midday_routine';
+    }
+  }
+
+  // Dictionary of user-friendly clean labels
+  const labelMap = {
+    breakfast: 'Breakfast',
+    morning_snack: 'Morning Snack',
+    lunch: 'Lunch',
+    afternoon_snack: 'Afternoon Snack',
+    dinner: 'Dinner',
+    evening_snack: 'Evening Snack',
+    night_snack: 'Night Snack',
+    workout: 'Workout',
+    exercise: 'Exercise',
+    morning_routine: 'Morning Routine',
+    midday_routine: 'Midday Routine',
+    evening_routine: 'Evening Routine',
+    evening_activity: 'Evening Activity',
+    sleep_routine: 'Sleep Routine',
+    night_routine: 'Night Routine',
+    hydration: 'Hydration',
+    general: 'Activity',
+  };
+
+  const label = labelMap[resolvedCat] || resolvedCat.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  // Distinct pleasant badges based on category
+  let badgeStyle = {
+    background: 'rgba(16, 185, 129, 0.12)',
+    color: '#059669',
+  };
+
+  if (/snack/i.test(resolvedCat)) {
+    badgeStyle = {
+      background: 'rgba(245, 158, 11, 0.14)',
+      color: '#d97706',
+    };
+  } else if (/workout|exercise/i.test(resolvedCat)) {
+    badgeStyle = {
+      background: 'rgba(14, 165, 233, 0.14)',
+      color: '#0284c7',
+    };
+  } else if (/routine|hydration|sleep/i.test(resolvedCat)) {
+    badgeStyle = {
+      background: 'rgba(99, 102, 241, 0.14)',
+      color: '#6366f1',
+    };
+  }
+
+  return { label, badgeStyle };
+};
+
 export function PlanDetailView({
   plan,
   onApprovePlan,
@@ -394,6 +480,7 @@ export function PlanDetailView({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
             {items.map((item) => {
               const done = isCompletedToday(item.id);
+              const { label: catLabel, badgeStyle: catBadgeStyle } = getCategoryDetails(item);
               return (
                 <div key={item.id} className={`pm-item-row ${done ? 'completed' : ''}`}>
                   {/* Status Checkbox for Active Plans */}
@@ -422,7 +509,7 @@ export function PlanDetailView({
                   {/* Time & Category */}
                   <div className="pm-item-time-col">
                     <span className="pm-item-time">{item.time_of_day}</span>
-                    <span className="pm-category-pill">{item.category}</span>
+                    <span className="pm-category-pill" style={catBadgeStyle}>{catLabel}</span>
                   </div>
 
                   {/* Body & Nutritional Impact */}
