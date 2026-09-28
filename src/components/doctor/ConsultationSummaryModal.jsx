@@ -18,6 +18,7 @@ import {
   Pill,
 } from 'lucide-react';
 import { consultationAiApi } from '../../api/consultationAi';
+import { consultationSummaryApi } from '../../api/consultationSummary';
 
 export function ConsultationSummaryModal({
   isOpen,
@@ -31,6 +32,7 @@ export function ConsultationSummaryModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [extraction, setExtraction] = useState(null);
+  const [consultationSummary, setConsultationSummary] = useState(null);
   const [transcript, setTranscript] = useState(null);
   const [showFullTranscript, setShowFullTranscript] = useState(false);
   const [polling, setPolling] = useState(false);
@@ -53,6 +55,15 @@ export function ConsultationSummaryModal({
     try {
       setLoading(true);
       setError(null);
+
+      // Fetch the comprehensive consultation summary (from ConsultationSummaryService)
+      consultationSummaryApi.getMeetingSummary(meetingId)
+        .then((summaryRes) => {
+          if (summaryRes && summaryRes.summary_text) {
+            setConsultationSummary(summaryRes.summary_text);
+          }
+        })
+        .catch(() => {});
 
       // Check status first
       const statusRes = await consultationAiApi.getStatus(meetingId).catch(() => null);
@@ -118,6 +129,15 @@ export function ConsultationSummaryModal({
           const extRes = await consultationAiApi.getExtraction(meetingId);
           setExtraction(extRes);
           setLoading(false);
+
+          // Also try to fetch the comprehensive summary
+          consultationSummaryApi.getMeetingSummary(meetingId)
+            .then((summaryRes) => {
+              if (summaryRes && summaryRes.summary_text) {
+                setConsultationSummary(summaryRes.summary_text);
+              }
+            })
+            .catch(() => {});
         } else if (statusRes.extraction_status === 'failed') {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
@@ -342,8 +362,8 @@ export function ConsultationSummaryModal({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {/* 1. Executive Consultation Summary */}
-              {consultation_summary && (
+              {/* 1. Comprehensive Consultation Summary */}
+              {(consultationSummary || consultation_summary) && (
                 <div
                   style={{
                     background: '#ffffff',
@@ -359,9 +379,9 @@ export function ConsultationSummaryModal({
                       Consultation Overview (Kiya Baat Hui)
                     </h4>
                   </div>
-                  <p style={{ margin: 0, fontSize: '0.9rem', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
-                    {consultation_summary}
-                  </p>
+                  <div style={{ margin: 0, fontSize: '0.9rem', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+                    {consultationSummary || consultation_summary}
+                  </div>
                 </div>
               )}
 

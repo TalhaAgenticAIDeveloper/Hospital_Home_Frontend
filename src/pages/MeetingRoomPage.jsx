@@ -624,6 +624,27 @@ export function MeetingRoomPage() {
       if (geminiWsRef.current === gws) {
         geminiWsRef.current = null;
       }
+
+      // Auto-reconnect if the connection dropped unexpectedly during an active session
+      // Don't reconnect if: user manually stopped (code 1000), meeting ended, or too many retries
+      const isUserStop = e.code === 1000 || e.code === 4001;
+      const isSessionActive = sessionState === 'active';
+      if (!isUserStop && isSessionActive && stream) {
+        const currentRetries = (gws._reconnectCount || 0) + 1;
+        if (currentRetries <= 5) {
+          const delay = Math.min(2000 * currentRetries, 10000);
+          console.log(`[GEMINI_TRANSCRIPTION] Auto-reconnecting in ${delay}ms (attempt ${currentRetries}/5)...`);
+          setTranscriptionStatus('connecting');
+          setTimeout(() => {
+            if (sessionState === 'active') {
+              startGeminiTranscription(meetingData, stream);
+            }
+          }, delay);
+        } else {
+          console.warn('[GEMINI_TRANSCRIPTION] Max reconnect attempts reached, giving up');
+          setTranscriptionStatus('error');
+        }
+      }
     };
   };
 
@@ -675,7 +696,11 @@ export function MeetingRoomPage() {
       };
 
       source.connect(processor);
-      processor.connect(audioCtx.destination); // Required for ScriptProcessorNode to fire
+      // Route through a gain node set to 0 to prevent mic audio echo/feedback through speakers
+      const muteNode = audioCtx.createGain();
+      muteNode.gain.value = 0;
+      processor.connect(muteNode);
+      muteNode.connect(audioCtx.destination);
 
       console.log(
         '[GEMINI_TRANSCRIPTION] Audio capture started:',
