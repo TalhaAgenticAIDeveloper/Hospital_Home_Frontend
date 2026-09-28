@@ -102,18 +102,13 @@ export function MeetingRoomPage() {
   const [interimCaption, setInterimCaption] = useState(null);
   const [speechLang, setSpeechLang] = useState('en-US'); // 'en-US' | 'ur-PK'
   const speechLangRef = useRef('en-US');
-  const [transcriptionStatus, setTranscriptionStatus] = useState('transcribing'); // 'transcribing' | 'reconnecting' | 'permission_denied' | 'muted' | 'unsupported'
+  const [transcriptionStatus, setTranscriptionStatus] = useState('connecting'); // 'transcribing' | 'connecting' | 'permission_denied' | 'muted' | 'error'
 
-  // Resilient SpeechRecognition lifecycle refs
-  const recognitionRef = useRef(null);
-  const shouldRecognizeRef = useRef(false);
-  const isStartingRef = useRef(false);
-  const isRecognizingRef = useRef(false);
-  const restartTimerRef = useRef(null);
-  const restartAttemptsRef = useRef(0);
-  const startWatchdogTimerRef = useRef(null);
-  const lastFinalTextRef = useRef('');
-  const lastFinalTimeRef = useRef(0);
+  // Gemini Live Transcription refs (replaces browser SpeechRecognition)
+  const geminiWsRef = useRef(null);       // WebSocket to /ws/transcribe/{room_id}
+  const audioContextRef = useRef(null);   // AudioContext for PCM capture
+  const audioProcessorRef = useRef(null); // ScriptProcessorNode
+  const geminiActiveRef = useRef(false);  // Whether Gemini streaming is active
   const transcriptBottomRef = useRef(null);
   const callStartTimeRef = useRef(Date.now());
 
@@ -552,331 +547,191 @@ export function MeetingRoomPage() {
     return () => clearInterval(id);
   }, [meeting, sessionState]);
 
-  // ─── Resilient Web Speech Live Transcription Manager ──────────────────
-  const commitFinalSegment = (text) => {
-    if (!text || !text.trim()) return;
-    const trimmed = text.trim();
-    const role = user?.role === 'doctor' ? 'doctor' : 'patient';
-    const defaultName = role === 'doctor'
-      ? (meeting?.doctor_name ? `Dr. ${meeting.doctor_name}` : (user?.full_name || 'Doctor'))
-      : (meeting?.patient_name || (user?.full_name || 'Patient'));
+  // ─── Gemini Live Transcription Manager ─────────────────────────────────
+  // Transcription is now handled server-side by Gemini 3.5 Transcribe Live.
+  // We capture raw PCM audio (16kHz, 16-bit, mono) from the microphone and
+  // stream it to the backend via a dedicated WebSocket. The backend forwards
+  // it to Gemini and broadcasts the transcriptions back via the signaling WS.
 
-    const segment = {
-      id: `${role}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-      speaker: role,
-      participant: role,
-      speakerName: defaultName,
-      text: trimmed,
-      is_final: true,
-      timestamp: parseFloat(Math.max(0, (Date.now() - callStartTimeRef.current) / 1000).toFixed(2)),
-      start_time: parseFloat(Math.max(0, (Date.now() - callStartTimeRef.current) / 1000).toFixed(2)),
-      lang: speechLangRef.current || 'en-US',
-    };
-
-    // 1. Commit to local live transcript state (with deduplication)
-    setLiveTranscript((prev) => {
-      const isDuplicate = prev.some(
-        (s) =>
-          s.id === segment.id ||
-          (s.speaker === segment.speaker &&
-            s.text.toLowerCase() === segment.text.toLowerCase() &&
-            Math.abs(s.timestamp - segment.timestamp) < 2.5)
-      );
-      if (isDuplicate) return prev;
-      const next = [...prev, segment];
-      next.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-      liveTranscriptRef.current = next;
-      return next;
-    });
-
-    // 2. Clear interim caption
-    setInterimCaption(null);
-
-    // 3. Broadcast final segment to peer via WebSocket
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'transcript-segment',
-          ...segment,
-        })
-      );
-    }
-    console.log(`[SPEECH_RECOGNITION] [FINAL] [${role.toUpperCase()}]: "${trimmed}"`);
-  };
-
-  const updateInterimSegment = (text) => {
-    if (!text || !text.trim()) return;
-    const trimmed = text.trim();
-    const role = user?.role === 'doctor' ? 'doctor' : 'patient';
-    const defaultName = role === 'doctor'
-      ? (meeting?.doctor_name ? `Dr. ${meeting.doctor_name}` : (user?.full_name || 'Doctor'))
-      : (meeting?.patient_name || (user?.full_name || 'Patient'));
-
-    // 1. Update local interim caption display
-    setInterimCaption({
-      speaker: role,
-      speakerName: defaultName,
-      text: trimmed,
-    });
-
-    // 2. Broadcast interim caption to peer via WebSocket so remote sees live speech
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'transcript-segment',
-          speaker: role,
-          participant: role,
-          speakerName: defaultName,
-          text: trimmed,
-          is_final: false,
-        })
-      );
-    }
-  };
-
-  const clearStartWatchdog = () => {
-    if (startWatchdogTimerRef.current) {
-      clearTimeout(startWatchdogTimerRef.current);
-      startWatchdogTimerRef.current = null;
-    }
-  };
-
-  const cleanupSpeechInstance = () => {
-    if (recognitionRef.current) {
-      try {
-        const rec = recognitionRef.current;
-        rec.onstart = null;
-        rec.onresult = null;
-        rec.onerror = null;
-        rec.onend = null;
-        rec.onaudiostart = null;
-        rec.onspeechstart = null;
-        rec.onspeechend = null;
-        rec.onaudioend = null;
-        rec.abort();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
-  };
-
-  const scheduleRestart = (delay = 200) => {
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-
-    if (!shouldRecognizeRef.current) return;
-
-    restartAttemptsRef.current = (restartAttemptsRef.current || 0) + 1;
-    // Controlled exponential backoff after multiple rapid restarts
-    const backoff = restartAttemptsRef.current > 5 ? 1200 : delay;
-
-    restartTimerRef.current = setTimeout(() => {
-      if (!shouldRecognizeRef.current) return;
-      startRecognition();
-    }, backoff);
-  };
-
-  const startRecognition = () => {
-    if (!shouldRecognizeRef.current) return;
-    if (isStartingRef.current || isRecognizingRef.current) return;
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('[SPEECH_RECOGNITION] SpeechRecognition API not supported in this browser');
-      setTranscriptionStatus('unsupported');
+  const startGeminiTranscription = (meetingData, stream) => {
+    if (!stream) {
+      console.warn('[GEMINI_TRANSCRIPTION] No stream available for transcription');
       return;
     }
 
-    // Always clean up any existing instance before instantiating a fresh one.
-    // In Chromium, re-calling .start() on a previously used SpeechRecognition object is invalid and causes silent lockups.
-    cleanupSpeechInstance();
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) {
+      console.warn('[GEMINI_TRANSCRIPTION] No audio track in stream');
+      return;
+    }
+
+    // Close any existing Gemini transcription connection
+    stopGeminiTranscription();
+
+    const { accessToken } = getStoredTokens();
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+    let host = window.location.host;
+    try {
+      if (API_BASE_URL) {
+        const parsedApi = new URL(API_BASE_URL, window.location.origin);
+        host = parsedApi.host || window.location.host;
+      }
+    } catch (err) {
+      console.warn('[GEMINI_TRANSCRIPTION] Could not parse API_BASE_URL:', err);
+    }
+
+    const transcribeUrl = `${wsProto}//${host}/api/v1/meetings/ws/transcribe/${meetingData.room_id}?token=${accessToken}`;
+    console.log('[GEMINI_TRANSCRIPTION] Connecting to:', transcribeUrl);
+
+    const gws = new WebSocket(transcribeUrl);
+    geminiWsRef.current = gws;
+    setTranscriptionStatus('connecting');
+
+    gws.onopen = () => {
+      console.log('[GEMINI_TRANSCRIPTION] WebSocket connected, waiting for Gemini session...');
+    };
+
+    gws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'transcription-ready') {
+          console.log('[GEMINI_TRANSCRIPTION] Gemini session ready — starting audio capture');
+          setTranscriptionStatus('transcribing');
+          geminiActiveRef.current = true;
+          startAudioCapture(stream, gws);
+        } else if (msg.type === 'transcription-error') {
+          console.error('[GEMINI_TRANSCRIPTION] Error:', msg.message);
+          setTranscriptionStatus('error');
+          setToast({ type: 'warning', message: `Live transcription: ${msg.message}` });
+        } else if (msg.type === 'transcription-closed') {
+          console.log('[GEMINI_TRANSCRIPTION] Server closed the transcription session');
+          setTranscriptionStatus('connecting');
+        }
+      } catch (e) {
+        // Non-JSON message, ignore
+      }
+    };
+
+    gws.onerror = (err) => {
+      console.error('[GEMINI_TRANSCRIPTION] WebSocket error:', err);
+      setTranscriptionStatus('error');
+    };
+
+    gws.onclose = (e) => {
+      console.log('[GEMINI_TRANSCRIPTION] WebSocket closed:', e.code, e.reason);
+      geminiActiveRef.current = false;
+      if (geminiWsRef.current === gws) {
+        geminiWsRef.current = null;
+      }
+    };
+  };
+
+  const startAudioCapture = (stream, gws) => {
+    if (!stream || !gws) return;
 
     try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.lang = speechLangRef.current || 'en-US';
+      // Create an AudioContext at 16kHz for Gemini's expected input format
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+        sampleRate: 16000,
+      });
+      audioContextRef.current = audioCtx;
 
-      recognition.onstart = () => {
-        clearStartWatchdog();
-        isStartingRef.current = false;
-        isRecognizingRef.current = true;
-        restartAttemptsRef.current = 0;
-        if (shouldRecognizeRef.current) {
-          setTranscriptionStatus('transcribing');
-        }
-        console.log(`[SPEECH_RECOGNITION] Started listening in language: ${recognition.lang}`);
-      };
+      const source = audioCtx.createMediaStreamSource(stream);
 
-      recognition.onresult = (event) => {
-        if (!shouldRecognizeRef.current) return;
+      // ScriptProcessorNode captures raw PCM audio data
+      // Buffer size 4096 at 16kHz = ~256ms chunks — good balance of latency vs overhead
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      audioProcessorRef.current = processor;
 
-        let interimText = '';
-        const now = Date.now();
+      processor.onaudioprocess = (e) => {
+        if (!geminiActiveRef.current || !gws || gws.readyState !== WebSocket.OPEN) return;
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i];
-          const text = res[0]?.transcript?.trim();
-          if (!text) continue;
+        // Get Float32 PCM data from the input channel
+        const float32Data = e.inputBuffer.getChannelData(0);
 
-          if (res.isFinal) {
-            // Prevent immediate duplicate sentence commit (same text within 2.5s)
-            if (
-              lastFinalTextRef.current === text &&
-              now - lastFinalTimeRef.current < 2500
-            ) {
-              console.debug('[SPEECH_RECOGNITION] Suppressed duplicate final segment:', text);
-              continue;
-            }
-
-            lastFinalTextRef.current = text;
-            lastFinalTimeRef.current = now;
-            commitFinalSegment(text);
-          } else {
-            interimText += (interimText ? ' ' : '') + text;
-          }
+        // Convert Float32 [-1.0, 1.0] → Int16 [-32768, 32767] (16-bit PCM)
+        const int16Data = new Int16Array(float32Data.length);
+        for (let i = 0; i < float32Data.length; i++) {
+          const s = Math.max(-1, Math.min(1, float32Data[i]));
+          int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
 
-        if (interimText) {
-          updateInterimSegment(interimText);
+        // Convert to base64 for JSON transport
+        const uint8View = new Uint8Array(int16Data.buffer);
+        let binary = '';
+        const chunkSize = 8192;
+        for (let i = 0; i < uint8View.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, uint8View.subarray(i, i + chunkSize));
+        }
+        const b64 = btoa(binary);
+
+        // Send to backend
+        try {
+          gws.send(JSON.stringify({ type: 'audio', data: b64 }));
+        } catch (sendErr) {
+          // WebSocket might have closed between the check and the send
         }
       };
 
-      recognition.onerror = (event) => {
-        const error = event.error;
-        console.warn(`[SPEECH_RECOGNITION] Error: ${error}`);
-        clearStartWatchdog();
-        isStartingRef.current = false;
+      source.connect(processor);
+      processor.connect(audioCtx.destination); // Required for ScriptProcessorNode to fire
 
-        if (error === 'not-allowed' || error === 'service-not-allowed') {
-          shouldRecognizeRef.current = false;
-          isRecognizingRef.current = false;
-          cleanupSpeechInstance();
-          setTranscriptionStatus('permission_denied');
-          setToast({
-            type: 'warning',
-            message: 'Microphone/speech recognition permission is required for live transcription.',
-          });
-          return;
-        }
-
-        if (error === 'no-speech') {
-          // Normal pause in speech — onend will follow and restart smoothly
-          return;
-        }
-
-        if (error === 'aborted') {
-          // Aborted intentionally or by Chrome audio pipeline renegotiation (e.g. WebRTC peer connection)
-          isRecognizingRef.current = false;
-          cleanupSpeechInstance();
-          if (shouldRecognizeRef.current) {
-            scheduleRestart(350);
-          }
-          return;
-        }
-
-        // Other errors (network, audio-capture, etc.)
-        isRecognizingRef.current = false;
-        cleanupSpeechInstance();
-        if (shouldRecognizeRef.current) {
-          setTranscriptionStatus('reconnecting');
-          scheduleRestart(600);
-        }
-      };
-
-      recognition.onend = () => {
-        clearStartWatchdog();
-        isStartingRef.current = false;
-        isRecognizingRef.current = false;
-        cleanupSpeechInstance();
-        console.log('[SPEECH_RECOGNITION] Ended (onend fired) - cleaning up instance');
-
-        // Clear interim caption on speech end
-        setInterimCaption(null);
-
-        // If consultation is still active, schedule controlled automatic restart with a fresh instance
-        if (shouldRecognizeRef.current) {
-          setTranscriptionStatus('transcribing');
-          scheduleRestart(180);
-        }
-      };
-
-      recognitionRef.current = recognition;
-      isStartingRef.current = true;
-
-      // Start watchdog to prevent permanent lockup if onstart fails to fire within 1500ms
-      clearStartWatchdog();
-      startWatchdogTimerRef.current = setTimeout(() => {
-        if (isStartingRef.current && !isRecognizingRef.current) {
-          console.warn('[SPEECH_RECOGNITION] Watchdog: onstart did not fire within 1500ms. Recovering lock...');
-          isStartingRef.current = false;
-          cleanupSpeechInstance();
-          if (shouldRecognizeRef.current) {
-            scheduleRestart(300);
-          }
-        }
-      }, 1500);
-
-      recognition.start();
+      console.log(
+        '[GEMINI_TRANSCRIPTION] Audio capture started:',
+        `sampleRate=${audioCtx.sampleRate}Hz`,
+        `bufferSize=4096`,
+        `channelCount=1`
+      );
     } catch (err) {
-      clearStartWatchdog();
-      isStartingRef.current = false;
-      isRecognizingRef.current = false;
-      cleanupSpeechInstance();
-      console.warn('[SPEECH_RECOGNITION] Start threw exception, scheduling fresh retry:', err);
-      if (shouldRecognizeRef.current) {
-        scheduleRestart(500);
-      }
+      console.error('[GEMINI_TRANSCRIPTION] Failed to start audio capture:', err);
+      setTranscriptionStatus('error');
     }
   };
 
-  const stopRecognition = () => {
-    shouldRecognizeRef.current = false;
-    clearStartWatchdog();
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
+  const stopGeminiTranscription = () => {
+    geminiActiveRef.current = false;
+
+    // Stop audio processing
+    if (audioProcessorRef.current) {
+      try {
+        audioProcessorRef.current.disconnect();
+      } catch (e) {}
+      audioProcessorRef.current = null;
     }
-    isStartingRef.current = false;
-    isRecognizingRef.current = false;
-    restartAttemptsRef.current = 0;
-    cleanupSpeechInstance();
+
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch (e) {}
+      audioContextRef.current = null;
+    }
+
+    // Close Gemini WebSocket
+    if (geminiWsRef.current) {
+      try {
+        if (geminiWsRef.current.readyState === WebSocket.OPEN) {
+          geminiWsRef.current.send(JSON.stringify({ type: 'stop' }));
+        }
+        geminiWsRef.current.close();
+      } catch (e) {}
+      geminiWsRef.current = null;
+    }
+
     setInterimCaption(null);
-    console.log('[SPEECH_RECOGNITION] Stopped cleanly');
+    console.log('[GEMINI_TRANSCRIPTION] Stopped cleanly');
   };
+
+  // Alias for backward compatibility (used by toggleAudio, handleLeaveCall, etc.)
+  const stopRecognition = stopGeminiTranscription;
 
   const handleLanguageChange = (newLang) => {
     if (newLang === speechLang) return;
     setSpeechLang(newLang);
     speechLangRef.current = newLang;
-    console.log(`[SPEECH_RECOGNITION] Switching language to: ${newLang}`);
-
-    if (shouldRecognizeRef.current) {
-      cleanupSpeechInstance();
-      scheduleRestart(150);
-    }
+    console.log(`[GEMINI_TRANSCRIPTION] Language preference set to: ${newLang}`);
+    // Note: Gemini handles language detection automatically, so no restart needed
   };
-
-  // Auto-revive SpeechRecognition when tab regains focus or visibility
-  useEffect(() => {
-    const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === 'visible' && shouldRecognizeRef.current) {
-        if (!isRecognizingRef.current && !isStartingRef.current) {
-          console.log('[SPEECH_RECOGNITION] Tab active/visible. Ensuring recognition is running...');
-          startRecognition();
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-    window.addEventListener('focus', handleVisibilityOrFocus);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-      window.removeEventListener('focus', handleVisibilityOrFocus);
-    };
-  }, []);
 
   // ─── MediaRecorder Consultation Audio Capture ───────────────────────────
   const startAudioRecording = (stream) => {
@@ -1012,8 +867,6 @@ export function MeetingRoomPage() {
         setLocalStream(stream);
         setMediaStatus('ready');
         startAudioRecording(stream);
-        shouldRecognizeRef.current = true;
-        startRecognition();
       } catch (videoErr) {
         console.warn('Video acquisition failed or timed out. Trying audio-only:', videoErr);
 
@@ -1034,8 +887,6 @@ export function MeetingRoomPage() {
           setIsVideoMuted(true);
           setMediaStatus('no-camera');
           startAudioRecording(stream);
-          shouldRecognizeRef.current = true;
-          startRecognition();
         } catch (audioErr) {
           console.warn('Microphone also unavailable/blocked:', audioErr);
           setMediaStatus('blocked');
@@ -1055,6 +906,12 @@ export function MeetingRoomPage() {
 
     // Always connect WebSocket signaling so the room functions regardless of local media
     connectWebSocket(meetingData, stream);
+
+    // Start Gemini Live Transcription (streams audio via separate WebSocket)
+    if (stream) {
+      // Small delay to let signaling WS connect first so transcript broadcasts reach both peers
+      setTimeout(() => startGeminiTranscription(meetingData, stream), 1000);
+    }
   };
 
   const createPeerConnection = (meetingData, stream) => {
@@ -1161,12 +1018,11 @@ export function MeetingRoomPage() {
 
     ws.onopen = () => {
       console.log('Connected to meeting signaling server:', wsUrl);
-      setTranscriptionStatus('transcribing');
     };
 
     ws.onerror = (err) => {
       console.error('Signaling WebSocket error:', err);
-      setTranscriptionStatus('connecting');
+      // Signaling WS error — don't override Gemini transcription status
       setToast({
         type: 'error',
         message: 'Could not connect to video signaling server. Please check your network or server proxy.',
@@ -1175,7 +1031,7 @@ export function MeetingRoomPage() {
 
     ws.onclose = (e) => {
       console.log('Signaling WebSocket closed:', e.code, e.reason);
-      setTranscriptionStatus('connecting');
+      // Signaling WS closed — Gemini transcription manages its own status
     };
 
     ws.onmessage = async (event) => {
@@ -1216,13 +1072,6 @@ export function MeetingRoomPage() {
               console.error('Failed to create offer on peer-joined:', err);
             }
 
-            // Ensure speech recognition didn't get disrupted by peer join / WebRTC track renegotiation
-            setTimeout(() => {
-              if (shouldRecognizeRef.current && !isRecognizingRef.current && !isStartingRef.current) {
-                console.log('[SPEECH_RECOGNITION] Verifying recognition active after peer joined...');
-                startRecognition();
-              }
-            }, 600);
             break;
           }
 
@@ -1253,13 +1102,6 @@ export function MeetingRoomPage() {
               console.error('Failed to handle incoming offer:', err);
             }
 
-            // Ensure speech recognition didn't get disrupted by incoming offer setup
-            setTimeout(() => {
-              if (shouldRecognizeRef.current && !isRecognizingRef.current && !isStartingRef.current) {
-                console.log('[SPEECH_RECOGNITION] Verifying recognition active after answering offer...');
-                startRecognition();
-              }
-            }, 600);
             break;
           }
 
@@ -1410,13 +1252,11 @@ export function MeetingRoomPage() {
         setIsAudioMuted(muted);
 
         if (muted) {
-          shouldRecognizeRef.current = false;
-          stopRecognition();
+          geminiActiveRef.current = false;
           setTranscriptionStatus('muted');
         } else {
-          shouldRecognizeRef.current = true;
+          geminiActiveRef.current = true;
           setTranscriptionStatus('transcribing');
-          startRecognition();
         }
       }
     }
@@ -1561,7 +1401,7 @@ export function MeetingRoomPage() {
   };
 
   function cleanupCall() {
-    stopRecognition();
+    stopGeminiTranscription();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
