@@ -48,6 +48,7 @@ export function PendingDoctorsTable({
                 <th>Father's Name</th>
                 <th>PMDC Reg. No.</th>
                 <th>Specialization</th>
+                <th>Fee</th>
                 <th>Experience</th>
                 <th>Submitted</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
@@ -71,12 +72,15 @@ export function PendingDoctorsTable({
                     {doc.father_name || '—'}
                   </td>
                   <td style={{ fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary)' }}>
-                    {doc.pmdc_registration_number || doc.license_number || 'N/A'}
+                    {doc.pmdc_registration_number || 'N/A'}
                   </td>
                   <td>
                     <span className="badge badge-role" style={{ fontSize: '0.75rem' }}>
                       {doc.specialization || 'Not specified'}
                     </span>
+                  </td>
+                  <td style={{ fontSize: '0.85rem', fontWeight: 600, color: '#047857' }}>
+                    {doc.consultation_fee != null ? `Rs. ${Number(doc.consultation_fee).toLocaleString()}` : '—'}
                   </td>
                   <td>
                     {doc.years_of_experience ? `${doc.years_of_experience} yrs` : 'N/A'}
@@ -142,11 +146,15 @@ export function PendingDoctorsTable({
               </div>
               <div>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>PMDC Reg. No.</span>
-                <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--primary)' }}>{doc.pmdc_registration_number || doc.license_number || 'N/A'}</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--primary)' }}>{doc.pmdc_registration_number || 'N/A'}</span>
               </div>
               <div>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Specialization</span>
                 <span style={{ fontWeight: 600 }}>{doc.specialization || 'N/A'}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Fee</span>
+                <span style={{ fontWeight: 700, color: '#047857' }}>{doc.consultation_fee != null ? `Rs. ${Number(doc.consultation_fee).toLocaleString()}` : 'N/A'}</span>
               </div>
               <div>
                 <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Submitted</span>

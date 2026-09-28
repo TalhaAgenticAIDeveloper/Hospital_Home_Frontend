@@ -8,25 +8,25 @@ export const consultationAiApi = {
    * @param {string} filename - e.g., "doctor.webm"
    */
   uploadAudio: async (meetingId, audioBlob, filename = 'audio.webm') => {
-    const { accessToken } = getStoredTokens();
     const formData = new FormData();
     formData.append('audio_file', audioBlob, filename);
 
-    const response = await fetch(`${API_BASE_URL}/api/v1/meetings/${meetingId}/upload-audio`, {
+    return apiFetch(`/api/v1/meetings/${meetingId}/upload-audio`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
       body: formData,
     });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.detail || 'Failed to upload audio.');
-    }
-
-    return response.json();
   },
+
+  /**
+   * Save live transcript captured during video call and trigger AI summary.
+   * @param {string} meetingId
+   * @param {{ segments: Array, full_text?: string, doctor_notes?: string }} data
+   */
+  saveLiveTranscript: (meetingId, data) =>
+    apiFetch(`/api/v1/consultation-ai/${meetingId}/live-transcript`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   /**
    * Start transcription of uploaded audio files.

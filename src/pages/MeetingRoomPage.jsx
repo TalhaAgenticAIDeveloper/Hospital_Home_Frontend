@@ -33,12 +33,15 @@ import {
   List,
   Star,
   Pill,
+  MessageSquare,
+  History,
 } from 'lucide-react';
 import { DoctorRatingModal } from '../components/patient/DoctorRatingModal';
 import { PrescriptionWriter } from '../components/doctor/PrescriptionWriter';
 import { PrescriptionView } from '../components/patient/PrescriptionView';
 import { AIExtractionReview } from '../components/doctor/AIExtractionReview';
-import { ratingApi } from '../api/rating';
+import { ConsultationSummaryModal } from '../components/doctor/ConsultationSummaryModal';
+import { PatientHistoryForDoctor } from '../components/doctor/PatientHistoryForDoctor';
 import { prescriptionApi } from '../api/prescription';
 import { consultationAiApi } from '../api/consultationAi';
 
@@ -86,6 +89,40 @@ export function MeetingRoomPage() {
   const [showAIExtractionReview, setShowAIExtractionReview] = useState(false);
   const [showPrescriptionView, setShowPrescriptionView] = useState(false);
   const [prescription, setPrescription] = useState(null);
+  const [aiDraftState, setAiDraftState] = useState(null); // null | 'processing' | 'ready' | 'failed'
+  const [aiDraftMessage, setAiDraftMessage] = useState('');
+  const aiPollingTimerRef = useRef(null);
+
+  // ─── Live Transcription & Consultation AI Summary States ─────────────────
+  const [showConsultationSummary, setShowConsultationSummary] = useState(false);
+  const [showPatientHistory, setShowPatientHistory] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState([]);
+  const liveTranscriptRef = useRef([]);
+  const [showLiveTranscriptDrawer, setShowLiveTranscriptDrawer] = useState(false);
+  const [interimCaption, setInterimCaption] = useState(null);
+  const [speechLang, setSpeechLang] = useState('en-US'); // 'en-US' | 'ur-PK'
+  const speechLangRef = useRef('en-US');
+  const [transcriptionStatus, setTranscriptionStatus] = useState('transcribing'); // 'transcribing' | 'reconnecting' | 'permission_denied' | 'muted' | 'unsupported'
+
+  // Resilient SpeechRecognition lifecycle refs
+  const recognitionRef = useRef(null);
+  const shouldRecognizeRef = useRef(false);
+  const isStartingRef = useRef(false);
+  const isRecognizingRef = useRef(false);
+  const restartTimerRef = useRef(null);
+  const restartAttemptsRef = useRef(0);
+  const startWatchdogTimerRef = useRef(null);
+  const lastFinalTextRef = useRef('');
+  const lastFinalTimeRef = useRef(0);
+  const transcriptBottomRef = useRef(null);
+  const callStartTimeRef = useRef(Date.now());
+
+  // Auto-scroll transcript drawer when new segments arrive
+  useEffect(() => {
+    if (showLiveTranscriptDrawer && transcriptBottomRef.current) {
+      transcriptBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [liveTranscript, showLiveTranscriptDrawer]);
 
   // ─── Document Panel States ────────────────────────────────────────────
   const [showDocPanel, setShowDocPanel] = useState(false);
@@ -104,6 +141,8 @@ export function MeetingRoomPage() {
   // DOM and WebRTC refs
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+  const [audioAutoplayBlocked, setAudioAutoplayBlocked] = useState(false);
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const wsRef = useRef(null);
@@ -171,21 +210,29 @@ export function MeetingRoomPage() {
           setPrescription(rx);
         }
       } catch (err) {
-        // If doctor and no prescription yet, check AI status or open AI extraction review
+        // If doctor and no prescription yet, inspect AI documentation status
         if (isMounted && user?.role === 'doctor') {
           consultationAiApi.getStatus(meetingId)
             .then((status) => {
-              if (isMounted) {
-                if (status.audio_uploaded || status.transcription_status !== 'pending' || status.extraction_status) {
-                  setShowAIExtractionReview(true);
-                } else {
-                  setShowPrescriptionWriter(true);
-                }
+              if (!isMounted) return;
+              if (status.has_approved_extraction) {
+                prescriptionApi.getMeetingPrescription(meetingId).then((p) => {
+                  if (isMounted && p) setPrescription(p);
+                }).catch(() => {});
+              } else if (status.extraction_status === 'completed') {
+                setAiDraftState('ready');
+                setAiDraftMessage('AI prescription draft is ready for review.');
+              } else if (
+                status.extraction_status === 'processing' ||
+                status.transcription_status === 'processing' ||
+                status.has_doctor_audio ||
+                status.has_patient_audio
+              ) {
+                setAiDraftState('processing');
+                setAiDraftMessage('AI is preparing the prescription from consultation dialogue...');
               }
             })
-            .catch(() => {
-              if (isMounted) setShowPrescriptionWriter(true);
-            });
+            .catch(() => {});
         }
       }
 
@@ -211,6 +258,80 @@ export function MeetingRoomPage() {
       isMounted = false;
     };
   }, [sessionState, meetingId, user?.role]);
+
+  // ─── AI Extraction Background Poller (Doctor Only) ──────────────────────
+  useEffect(() => {
+    if (aiDraftState !== 'processing' || !meetingId || user?.role !== 'doctor') {
+      if (aiPollingTimerRef.current) {
+        clearInterval(aiPollingTimerRef.current);
+        aiPollingTimerRef.current = null;
+      }
+      return;
+    }
+
+    let isPolling = true;
+
+    const pollStatus = async () => {
+      try {
+        const targetId = meeting?.id || meetingId;
+        const res = await consultationAiApi.getStatus(targetId);
+        if (!isPolling) return;
+
+        if (res.has_approved_extraction) {
+          setAiDraftState(null);
+          prescriptionApi.getMeetingPrescription(targetId).then((p) => {
+            if (isPolling && p) setPrescription(p);
+          }).catch(() => {});
+          return;
+        }
+
+        if (res.extraction_status === 'completed') {
+          setAiDraftState('ready');
+          setAiDraftMessage('Prescription draft ready!');
+          setShowAIExtractionReview(true);
+          setToast({
+            type: 'success',
+            message: 'Prescription draft prepared by AI! Opening review dialog...',
+          });
+          if (aiPollingTimerRef.current) {
+            clearInterval(aiPollingTimerRef.current);
+            aiPollingTimerRef.current = null;
+          }
+        } else if (res.extraction_status === 'failed' || res.transcription_status === 'failed') {
+          setAiDraftState('failed');
+          setAiDraftMessage(
+            res.extraction_error || res.transcript_error || 'AI transcription/extraction could not be completed.'
+          );
+          setToast({
+            type: 'warning',
+            message: 'AI draft preparation failed. You can write the prescription manually or retry.',
+          });
+          if (aiPollingTimerRef.current) {
+            clearInterval(aiPollingTimerRef.current);
+            aiPollingTimerRef.current = null;
+          }
+        } else if (res.extraction_status === 'processing') {
+          setAiDraftMessage('Extracting diagnoses, medicines, dosages, and instructions...');
+        } else if (res.transcription_status === 'processing') {
+          setAiDraftMessage('Transcribing dialogue with Whisper Speech-to-Text...');
+        }
+      } catch (err) {
+        console.warn('AI background poller error:', err);
+      }
+    };
+
+    // Run immediate check and then every 2.5 seconds
+    pollStatus();
+    aiPollingTimerRef.current = setInterval(pollStatus, 2500);
+
+    return () => {
+      isPolling = false;
+      if (aiPollingTimerRef.current) {
+        clearInterval(aiPollingTimerRef.current);
+        aiPollingTimerRef.current = null;
+      }
+    };
+  }, [aiDraftState, meetingId, meeting?.id, user?.role]);
 
 
   // Attach local stream to <video> as soon as element and stream are both available
@@ -431,6 +552,332 @@ export function MeetingRoomPage() {
     return () => clearInterval(id);
   }, [meeting, sessionState]);
 
+  // ─── Resilient Web Speech Live Transcription Manager ──────────────────
+  const commitFinalSegment = (text) => {
+    if (!text || !text.trim()) return;
+    const trimmed = text.trim();
+    const role = user?.role === 'doctor' ? 'doctor' : 'patient';
+    const defaultName = role === 'doctor'
+      ? (meeting?.doctor_name ? `Dr. ${meeting.doctor_name}` : (user?.full_name || 'Doctor'))
+      : (meeting?.patient_name || (user?.full_name || 'Patient'));
+
+    const segment = {
+      id: `${role}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      speaker: role,
+      participant: role,
+      speakerName: defaultName,
+      text: trimmed,
+      is_final: true,
+      timestamp: parseFloat(Math.max(0, (Date.now() - callStartTimeRef.current) / 1000).toFixed(2)),
+      start_time: parseFloat(Math.max(0, (Date.now() - callStartTimeRef.current) / 1000).toFixed(2)),
+      lang: speechLangRef.current || 'en-US',
+    };
+
+    // 1. Commit to local live transcript state (with deduplication)
+    setLiveTranscript((prev) => {
+      const isDuplicate = prev.some(
+        (s) =>
+          s.id === segment.id ||
+          (s.speaker === segment.speaker &&
+            s.text.toLowerCase() === segment.text.toLowerCase() &&
+            Math.abs(s.timestamp - segment.timestamp) < 2.5)
+      );
+      if (isDuplicate) return prev;
+      const next = [...prev, segment];
+      next.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      liveTranscriptRef.current = next;
+      return next;
+    });
+
+    // 2. Clear interim caption
+    setInterimCaption(null);
+
+    // 3. Broadcast final segment to peer via WebSocket
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'transcript-segment',
+          ...segment,
+        })
+      );
+    }
+    console.log(`[SPEECH_RECOGNITION] [FINAL] [${role.toUpperCase()}]: "${trimmed}"`);
+  };
+
+  const updateInterimSegment = (text) => {
+    if (!text || !text.trim()) return;
+    const trimmed = text.trim();
+    const role = user?.role === 'doctor' ? 'doctor' : 'patient';
+    const defaultName = role === 'doctor'
+      ? (meeting?.doctor_name ? `Dr. ${meeting.doctor_name}` : (user?.full_name || 'Doctor'))
+      : (meeting?.patient_name || (user?.full_name || 'Patient'));
+
+    // 1. Update local interim caption display
+    setInterimCaption({
+      speaker: role,
+      speakerName: defaultName,
+      text: trimmed,
+    });
+
+    // 2. Broadcast interim caption to peer via WebSocket so remote sees live speech
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'transcript-segment',
+          speaker: role,
+          participant: role,
+          speakerName: defaultName,
+          text: trimmed,
+          is_final: false,
+        })
+      );
+    }
+  };
+
+  const clearStartWatchdog = () => {
+    if (startWatchdogTimerRef.current) {
+      clearTimeout(startWatchdogTimerRef.current);
+      startWatchdogTimerRef.current = null;
+    }
+  };
+
+  const cleanupSpeechInstance = () => {
+    if (recognitionRef.current) {
+      try {
+        const rec = recognitionRef.current;
+        rec.onstart = null;
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.onaudiostart = null;
+        rec.onspeechstart = null;
+        rec.onspeechend = null;
+        rec.onaudioend = null;
+        rec.abort();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+  };
+
+  const scheduleRestart = (delay = 200) => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
+    if (!shouldRecognizeRef.current) return;
+
+    restartAttemptsRef.current = (restartAttemptsRef.current || 0) + 1;
+    // Controlled exponential backoff after multiple rapid restarts
+    const backoff = restartAttemptsRef.current > 5 ? 1200 : delay;
+
+    restartTimerRef.current = setTimeout(() => {
+      if (!shouldRecognizeRef.current) return;
+      startRecognition();
+    }, backoff);
+  };
+
+  const startRecognition = () => {
+    if (!shouldRecognizeRef.current) return;
+    if (isStartingRef.current || isRecognizingRef.current) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('[SPEECH_RECOGNITION] SpeechRecognition API not supported in this browser');
+      setTranscriptionStatus('unsupported');
+      return;
+    }
+
+    // Always clean up any existing instance before instantiating a fresh one.
+    // In Chromium, re-calling .start() on a previously used SpeechRecognition object is invalid and causes silent lockups.
+    cleanupSpeechInstance();
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.lang = speechLangRef.current || 'en-US';
+
+      recognition.onstart = () => {
+        clearStartWatchdog();
+        isStartingRef.current = false;
+        isRecognizingRef.current = true;
+        restartAttemptsRef.current = 0;
+        if (shouldRecognizeRef.current) {
+          setTranscriptionStatus('transcribing');
+        }
+        console.log(`[SPEECH_RECOGNITION] Started listening in language: ${recognition.lang}`);
+      };
+
+      recognition.onresult = (event) => {
+        if (!shouldRecognizeRef.current) return;
+
+        let interimText = '';
+        const now = Date.now();
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          const text = res[0]?.transcript?.trim();
+          if (!text) continue;
+
+          if (res.isFinal) {
+            // Prevent immediate duplicate sentence commit (same text within 2.5s)
+            if (
+              lastFinalTextRef.current === text &&
+              now - lastFinalTimeRef.current < 2500
+            ) {
+              console.debug('[SPEECH_RECOGNITION] Suppressed duplicate final segment:', text);
+              continue;
+            }
+
+            lastFinalTextRef.current = text;
+            lastFinalTimeRef.current = now;
+            commitFinalSegment(text);
+          } else {
+            interimText += (interimText ? ' ' : '') + text;
+          }
+        }
+
+        if (interimText) {
+          updateInterimSegment(interimText);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        const error = event.error;
+        console.warn(`[SPEECH_RECOGNITION] Error: ${error}`);
+        clearStartWatchdog();
+        isStartingRef.current = false;
+
+        if (error === 'not-allowed' || error === 'service-not-allowed') {
+          shouldRecognizeRef.current = false;
+          isRecognizingRef.current = false;
+          cleanupSpeechInstance();
+          setTranscriptionStatus('permission_denied');
+          setToast({
+            type: 'warning',
+            message: 'Microphone/speech recognition permission is required for live transcription.',
+          });
+          return;
+        }
+
+        if (error === 'no-speech') {
+          // Normal pause in speech — onend will follow and restart smoothly
+          return;
+        }
+
+        if (error === 'aborted') {
+          // Aborted intentionally or by Chrome audio pipeline renegotiation (e.g. WebRTC peer connection)
+          isRecognizingRef.current = false;
+          cleanupSpeechInstance();
+          if (shouldRecognizeRef.current) {
+            scheduleRestart(350);
+          }
+          return;
+        }
+
+        // Other errors (network, audio-capture, etc.)
+        isRecognizingRef.current = false;
+        cleanupSpeechInstance();
+        if (shouldRecognizeRef.current) {
+          setTranscriptionStatus('reconnecting');
+          scheduleRestart(600);
+        }
+      };
+
+      recognition.onend = () => {
+        clearStartWatchdog();
+        isStartingRef.current = false;
+        isRecognizingRef.current = false;
+        cleanupSpeechInstance();
+        console.log('[SPEECH_RECOGNITION] Ended (onend fired) - cleaning up instance');
+
+        // Clear interim caption on speech end
+        setInterimCaption(null);
+
+        // If consultation is still active, schedule controlled automatic restart with a fresh instance
+        if (shouldRecognizeRef.current) {
+          setTranscriptionStatus('transcribing');
+          scheduleRestart(180);
+        }
+      };
+
+      recognitionRef.current = recognition;
+      isStartingRef.current = true;
+
+      // Start watchdog to prevent permanent lockup if onstart fails to fire within 1500ms
+      clearStartWatchdog();
+      startWatchdogTimerRef.current = setTimeout(() => {
+        if (isStartingRef.current && !isRecognizingRef.current) {
+          console.warn('[SPEECH_RECOGNITION] Watchdog: onstart did not fire within 1500ms. Recovering lock...');
+          isStartingRef.current = false;
+          cleanupSpeechInstance();
+          if (shouldRecognizeRef.current) {
+            scheduleRestart(300);
+          }
+        }
+      }, 1500);
+
+      recognition.start();
+    } catch (err) {
+      clearStartWatchdog();
+      isStartingRef.current = false;
+      isRecognizingRef.current = false;
+      cleanupSpeechInstance();
+      console.warn('[SPEECH_RECOGNITION] Start threw exception, scheduling fresh retry:', err);
+      if (shouldRecognizeRef.current) {
+        scheduleRestart(500);
+      }
+    }
+  };
+
+  const stopRecognition = () => {
+    shouldRecognizeRef.current = false;
+    clearStartWatchdog();
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    isStartingRef.current = false;
+    isRecognizingRef.current = false;
+    restartAttemptsRef.current = 0;
+    cleanupSpeechInstance();
+    setInterimCaption(null);
+    console.log('[SPEECH_RECOGNITION] Stopped cleanly');
+  };
+
+  const handleLanguageChange = (newLang) => {
+    if (newLang === speechLang) return;
+    setSpeechLang(newLang);
+    speechLangRef.current = newLang;
+    console.log(`[SPEECH_RECOGNITION] Switching language to: ${newLang}`);
+
+    if (shouldRecognizeRef.current) {
+      cleanupSpeechInstance();
+      scheduleRestart(150);
+    }
+  };
+
+  // Auto-revive SpeechRecognition when tab regains focus or visibility
+  useEffect(() => {
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible' && shouldRecognizeRef.current) {
+        if (!isRecognizingRef.current && !isStartingRef.current) {
+          console.log('[SPEECH_RECOGNITION] Tab active/visible. Ensuring recognition is running...');
+          startRecognition();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, []);
+
   // ─── MediaRecorder Consultation Audio Capture ───────────────────────────
   const startAudioRecording = (stream) => {
     if (!stream) return;
@@ -473,13 +920,17 @@ export function MeetingRoomPage() {
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
-        mediaRecorderRef.current.stop();
+        await new Promise((resolve) => {
+          mediaRecorderRef.current.onstop = () => resolve();
+          mediaRecorderRef.current.stop();
+          setTimeout(resolve, 800); // Safety fallback
+        });
       } catch (e) {
         console.warn('Error stopping MediaRecorder:', e);
       }
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
 
     if (audioChunksRef.current.length > 0) {
       try {
@@ -497,6 +948,35 @@ export function MeetingRoomPage() {
     return null;
   };
 
+  // Helper to ensure audio and video tracks are attached to the PeerConnection
+  const attachTracksToPC = (pc, stream) => {
+    const activeStream = stream || localStreamRef.current;
+    if (!pc || !activeStream) return;
+    const senders = pc.getSenders();
+    activeStream.getTracks().forEach((track) => {
+      const already = senders.some((s) => s.track && s.track.id === track.id);
+      if (!already) {
+        try {
+          pc.addTrack(track, activeStream);
+          console.log(`Attached ${track.kind} track to PC (enabled: ${track.enabled})`);
+        } catch (err) {
+          console.warn(`Failed to add ${track.kind} track to PC:`, err);
+        }
+      }
+    });
+  };
+
+  const unlockAudio = () => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.play().then(() => {
+        setAudioAutoplayBlocked(false);
+      }).catch((e) => console.warn('Audio play still prevented by browser:', e));
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.play().catch(() => {});
+    }
+  };
+
   // ─── 2. Safe Media Acquisition with Timeout Fallback ─────────────────────
   async function initializeMediaAndSignaling(meetingData) {
     let stream = null;
@@ -511,24 +991,51 @@ export function MeetingRoomPage() {
         );
 
         stream = await Promise.race([
-          navigator.mediaDevices.getUserMedia({ video: true, audio: true }),
+          navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          }),
           timeoutPromise,
         ]);
+
+        // Explicitly ensure audio tracks are enabled
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+          console.log('Local mic audio track ready:', track.label, track.enabled);
+        });
 
         localStreamRef.current = stream;
         setLocalStream(stream);
         setMediaStatus('ready');
         startAudioRecording(stream);
+        shouldRecognizeRef.current = true;
+        startRecognition();
       } catch (videoErr) {
         console.warn('Video acquisition failed or timed out. Trying audio-only:', videoErr);
 
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+          stream.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
           localStreamRef.current = stream;
           setLocalStream(stream);
           setIsVideoMuted(true);
           setMediaStatus('no-camera');
           startAudioRecording(stream);
+          shouldRecognizeRef.current = true;
+          startRecognition();
         } catch (audioErr) {
           console.warn('Microphone also unavailable/blocked:', audioErr);
           setMediaStatus('blocked');
@@ -551,26 +1058,57 @@ export function MeetingRoomPage() {
   };
 
   const createPeerConnection = (meetingData, stream) => {
-    if (peerConnectionRef.current) return peerConnectionRef.current;
+    if (peerConnectionRef.current) {
+      attachTracksToPC(peerConnectionRef.current, stream);
+      return peerConnectionRef.current;
+    }
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionRef.current = pc;
 
-    // Add local tracks if available
-    const activeStream = stream || localStreamRef.current;
-    if (activeStream) {
-      activeStream.getTracks().forEach((track) => {
-        pc.addTrack(track, activeStream);
-      });
-    }
+    attachTracksToPC(pc, stream);
 
-    // Remote track handler
+    // Remote track handler - routes audio and video cleanly to respective elements
     pc.ontrack = (event) => {
-      if (remoteVideoRef.current && event.streams[0]) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-        setPeerConnected(true);
-        setBothJoined(true);
+      console.log('WebRTC ontrack received:', event.track.kind, event.track.id);
+
+      // Dedicated audio track routing to ensure microphone sound is never muted
+      if (event.track.kind === 'audio') {
+        if (remoteAudioRef.current) {
+          const audioStream = (event.streams && event.streams[0])
+            ? event.streams[0]
+            : new MediaStream([event.track]);
+          remoteAudioRef.current.srcObject = audioStream;
+          remoteAudioRef.current.play().then(() => {
+            setAudioAutoplayBlocked(false);
+          }).catch((err) => {
+            console.warn('Remote audio autoplay blocked by browser policy:', err);
+            setAudioAutoplayBlocked(true);
+          });
+        }
       }
+
+      // Video track routing
+      if (remoteVideoRef.current) {
+        if (event.streams && event.streams[0]) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        } else {
+          let currentStream = remoteVideoRef.current.srcObject;
+          if (!currentStream) {
+            currentStream = new MediaStream();
+            remoteVideoRef.current.srcObject = currentStream;
+          }
+          if (!currentStream.getTracks().includes(event.track)) {
+            currentStream.addTrack(event.track);
+          }
+        }
+        remoteVideoRef.current.play().catch((err) => {
+          console.warn('Remote video autoplay blocked:', err);
+        });
+      }
+
+      setPeerConnected(true);
+      setBothJoined(true);
     };
 
     // ICE Candidate handler
@@ -586,6 +1124,7 @@ export function MeetingRoomPage() {
     };
 
     pc.onconnectionstatechange = () => {
+      console.log('WebRTC connection state:', pc.connectionState);
       if (pc.connectionState === 'connected') {
         setPeerConnected(true);
         setBothJoined(true);
@@ -602,14 +1141,41 @@ export function MeetingRoomPage() {
   const connectWebSocket = (meetingData, activeStream) => {
     const { accessToken } = getStoredTokens();
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const parsedApi = new URL(API_BASE_URL);
-    const wsUrl = `${wsProto}//${parsedApi.host}/api/v1/meetings/ws/${meetingData.room_id}?token=${accessToken}`;
+    
+    // Safely extract hostname for WebSocket signaling server
+    let host = window.location.host;
+    try {
+      if (API_BASE_URL) {
+        const parsedApi = new URL(API_BASE_URL, window.location.origin);
+        host = parsedApi.host || window.location.host;
+      }
+    } catch (err) {
+      console.warn('Could not parse API_BASE_URL, defaulting to window.location.host:', err);
+    }
+
+    const wsUrl = `${wsProto}//${host}/api/v1/meetings/ws/${meetingData.room_id}?token=${accessToken}`;
+    console.log('Connecting to meeting signaling server:', wsUrl);
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('Connected to meeting signaling server');
+      console.log('Connected to meeting signaling server:', wsUrl);
+      setTranscriptionStatus('transcribing');
+    };
+
+    ws.onerror = (err) => {
+      console.error('Signaling WebSocket error:', err);
+      setTranscriptionStatus('connecting');
+      setToast({
+        type: 'error',
+        message: 'Could not connect to video signaling server. Please check your network or server proxy.',
+      });
+    };
+
+    ws.onclose = (e) => {
+      console.log('Signaling WebSocket closed:', e.code, e.reason);
+      setTranscriptionStatus('connecting');
     };
 
     ws.onmessage = async (event) => {
@@ -622,8 +1188,6 @@ export function MeetingRoomPage() {
               const other = data.participants.find((p) => p.user_id !== user?.id);
               if (other) {
                 setPeerName(other.name);
-                setPeerConnected(true);
-                setBothJoined(true);
               }
             }
             break;
@@ -632,39 +1196,82 @@ export function MeetingRoomPage() {
             setPeerName(data.name || 'Participant');
             setToast({ type: 'info', message: `${data.name} joined the consultation.` });
 
-            // Initiator creates and sends offer
-            const pc = createPeerConnection(meetingData, activeStream);
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
+            // Create PeerConnection and initiate offer to newcomer
+            try {
+              const pc = createPeerConnection(meetingData, activeStream);
+              const offer = await pc.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true,
+              });
+              await pc.setLocalDescription(offer);
 
-            ws.send(
-              JSON.stringify({
-                type: 'offer',
-                sdp: pc.localDescription,
-              })
-            );
+              ws.send(
+                JSON.stringify({
+                  type: 'offer',
+                  sdp: pc.localDescription,
+                })
+              );
+              console.log('WebRTC offer sent to newly joined participant');
+            } catch (err) {
+              console.error('Failed to create offer on peer-joined:', err);
+            }
+
+            // Ensure speech recognition didn't get disrupted by peer join / WebRTC track renegotiation
+            setTimeout(() => {
+              if (shouldRecognizeRef.current && !isRecognizingRef.current && !isStartingRef.current) {
+                console.log('[SPEECH_RECOGNITION] Verifying recognition active after peer joined...');
+                startRecognition();
+              }
+            }, 600);
             break;
           }
 
           case 'offer': {
-            const pcAns = createPeerConnection(meetingData, activeStream);
-            await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
-            const answer = await pcAns.createAnswer();
-            await pcAns.setLocalDescription(answer);
+            try {
+              const pcAns = createPeerConnection(meetingData, activeStream);
 
-            ws.send(
-              JSON.stringify({
-                type: 'answer',
-                sdp: pcAns.localDescription,
-              })
-            );
+              // Handle WebRTC glare if we happened to have a local offer
+              if (pcAns.signalingState === 'have-local-offer') {
+                await pcAns.setLocalDescription({ type: 'rollback' });
+              }
+
+              await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
+              const answer = await pcAns.createAnswer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true,
+              });
+              await pcAns.setLocalDescription(answer);
+
+              ws.send(
+                JSON.stringify({
+                  type: 'answer',
+                  sdp: pcAns.localDescription,
+                })
+              );
+              console.log('WebRTC answer sent back');
+            } catch (err) {
+              console.error('Failed to handle incoming offer:', err);
+            }
+
+            // Ensure speech recognition didn't get disrupted by incoming offer setup
+            setTimeout(() => {
+              if (shouldRecognizeRef.current && !isRecognizingRef.current && !isStartingRef.current) {
+                console.log('[SPEECH_RECOGNITION] Verifying recognition active after answering offer...');
+                startRecognition();
+              }
+            }, 600);
             break;
           }
 
           case 'answer': {
-            const pcOffer = peerConnectionRef.current;
-            if (pcOffer && pcOffer.signalingState !== 'stable') {
-              await pcOffer.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            try {
+              const pcOffer = peerConnectionRef.current;
+              if (pcOffer && pcOffer.signalingState === 'have-local-offer') {
+                await pcOffer.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                console.log('WebRTC remote description set from answer successfully');
+              }
+            } catch (err) {
+              console.error('Failed to handle incoming answer:', err);
             }
             break;
           }
@@ -688,13 +1295,85 @@ export function MeetingRoomPage() {
             setToast({ type: 'info', message: 'The other participant has left the consultation.' });
             break;
 
+          case 'transcript-segment': {
+            const isFinal = data.is_final !== false;
+            const speaker = data.speaker || data.participant || 'peer';
+            const speakerName = data.speakerName || data.speaker_name || (speaker === 'doctor' ? 'Doctor' : 'Patient');
+            const text = (data.text || '').trim();
+            if (!text) break;
+
+            if (!isFinal) {
+              // Remote peer's live interim speech preview
+              setInterimCaption({
+                speaker,
+                speakerName,
+                text,
+              });
+              setTimeout(() => {
+                setInterimCaption((curr) => (curr?.text === text ? null : curr));
+              }, 3500);
+            } else {
+              // Final committed segment from remote peer
+              const segment = {
+                id: data.id || `${speaker}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                speaker,
+                participant: speaker,
+                speakerName,
+                text,
+                is_final: true,
+                timestamp: typeof data.timestamp === 'number'
+                  ? data.timestamp
+                  : parseFloat(Math.max(0, (Date.now() - callStartTimeRef.current) / 1000).toFixed(2)),
+                start_time: data.start_time ?? data.timestamp ?? 0,
+              };
+
+              setLiveTranscript((prev) => {
+                const already = prev.some(
+                  (s) =>
+                    s.id === segment.id ||
+                    (s.speaker === segment.speaker &&
+                      s.text.toLowerCase() === segment.text.toLowerCase() &&
+                      Math.abs(s.timestamp - segment.timestamp) < 2.5)
+                );
+                if (already) return prev;
+                const next = [...prev, segment];
+                next.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+                liveTranscriptRef.current = next;
+                return next;
+              });
+
+              setInterimCaption(null);
+            }
+            break;
+          }
+
           case 'meeting-ended':
             setSessionState('completed');
-            setToast({ type: 'info', message: 'Consultation has been ended by the other party.' });
+            setToast({ type: 'info', message: 'Consultation has been concluded.' });
+
+            // Upload patient's audio recording BEFORE cleanup destroys the MediaRecorder
+            // This ensures the patient's voice is available for Whisper transcription
             if (meetingData?.id) {
-              stopAndUploadAudio(meetingData.id);
+              (async () => {
+                try {
+                  await stopAndUploadAudio(meetingData.id);
+                  console.log('Patient audio uploaded on meeting-ended');
+                } catch (audioErr) {
+                  console.warn('Patient audio upload on meeting-ended failed:', audioErr);
+                }
+                // Save live transcript segments as fallback
+                try {
+                  await consultationAiApi.saveLiveTranscript(meetingData.id, {
+                    segments: liveTranscriptRef.current,
+                  });
+                } catch (saveErr) {
+                  console.warn('Live transcript save on meeting-ended failed:', saveErr);
+                }
+                cleanupCall();
+              })();
+            } else {
+              cleanupCall();
             }
-            cleanupCall();
             break;
 
           case 'documents-updated':
@@ -727,7 +1406,18 @@ export function MeetingRoomPage() {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioMuted(!audioTrack.enabled);
+        const muted = !audioTrack.enabled;
+        setIsAudioMuted(muted);
+
+        if (muted) {
+          shouldRecognizeRef.current = false;
+          stopRecognition();
+          setTranscriptionStatus('muted');
+        } else {
+          shouldRecognizeRef.current = true;
+          setTranscriptionStatus('transcribing');
+          startRecognition();
+        }
       }
     }
   };
@@ -747,6 +1437,8 @@ export function MeetingRoomPage() {
     setShowLeaveWarning(false);
 
     try {
+      stopRecognition();
+
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -756,8 +1448,11 @@ export function MeetingRoomPage() {
         );
       }
 
-      if (user?.role === 'patient') {
-        stopAndUploadAudio(meeting?.id || meetingId);
+      // Upload audio for BOTH doctor and patient when leaving
+      try {
+        await stopAndUploadAudio(meeting?.id || meetingId);
+      } catch (uploadErr) {
+        console.warn('Audio upload on leave failed:', uploadErr);
       }
 
       cleanupCall();
@@ -805,6 +1500,9 @@ export function MeetingRoomPage() {
   const handleConfirmEndMeeting = async () => {
     setIsEnding(true);
     try {
+      stopRecognition();
+
+      // Notify peer that meeting is ending (patient will upload their audio too)
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -814,26 +1512,46 @@ export function MeetingRoomPage() {
         );
       }
 
-      // Stop & upload doctor audio track
-      const uploadRes = await stopAndUploadAudio(meeting.id);
+      // Upload doctor's audio recording BEFORE ending the meeting
+      // This is critical — without this, doctor's voice is never transcribed by Whisper
+      try {
+        await stopAndUploadAudio(meeting.id);
+        console.log('Doctor audio uploaded successfully for Whisper transcription');
+      } catch (audioErr) {
+        console.warn('Doctor audio upload failed (live transcript will still be used):', audioErr);
+      }
 
+      // Save live transcript to backend (this auto-triggers AI Consultation Summary!)
+      const segmentsToSave = liveTranscriptRef.current || [];
+      try {
+        await consultationAiApi.saveLiveTranscript(meeting.id, {
+          segments: segmentsToSave,
+          doctor_notes: doctorNotes.trim() || undefined,
+        });
+      } catch (saveErr) {
+        console.warn('Live transcript save notice:', saveErr);
+      }
+
+      // End meeting in DB
       await meetingApi.endMeeting(meeting.id, {
         doctor_notes: doctorNotes.trim() || undefined,
       });
 
-      // If audio was uploaded, start Groq Whisper transcription background pipeline
-      if (uploadRes) {
-        try {
-          await consultationAiApi.startTranscription(meeting.id);
-        } catch (sttErr) {
-          console.warn('Auto-transcription notice:', sttErr);
-        }
+      // Trigger Whisper audio transcription if audio files were uploaded
+      // This produces a much more accurate transcript than the live SpeechRecognition API
+      // Wait 3s for patient's audio upload to arrive (they upload in parallel on meeting-ended event)
+      try {
+        await new Promise((r) => setTimeout(r, 3000));
+        await consultationAiApi.startTranscription(meeting.id);
+        console.log('Whisper transcription pipeline triggered');
+      } catch (transcribeErr) {
+        // Non-fatal — live transcript is already saved as fallback
+        console.warn('Whisper transcription trigger failed (live transcript is the fallback):', transcribeErr);
       }
 
       setShowEndModal(false);
       setSessionState('completed');
-      setShowAIExtractionReview(true);
-      setToast({ type: 'success', message: 'Consultation ended. AI documentation is processing.' });
+      setToast({ type: 'info', message: 'Consultation concluded. AI is preparing the consultation summary.' });
       cleanupCall();
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to end consultation.' });
@@ -843,6 +1561,7 @@ export function MeetingRoomPage() {
   };
 
   function cleanupCall() {
+    stopRecognition();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
@@ -987,6 +1706,19 @@ export function MeetingRoomPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem', alignItems: 'center' }}>
             {user?.role === 'patient' && (
               <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <Button
+                  variant="primary"
+                  onClick={() => setShowConsultationSummary(true)}
+                  icon={<Sparkles size={16} />}
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    border: 'none',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                  }}
+                >
+                  View Consultation AI Summary
+                </Button>
+
                 {prescription && (
                   <Button
                     variant="secondary"
@@ -1028,37 +1760,64 @@ export function MeetingRoomPage() {
             )}
 
             {user?.role === 'doctor' && (
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                {prescription ? (
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', marginBottom: '0.5rem' }}>
                   <Button
-                    variant="secondary"
-                    onClick={() => setShowPrescriptionView(true)}
-                    icon={<Pill size={16} color="#059669" />}
+                    variant="primary"
+                    onClick={() => setShowConsultationSummary(true)}
+                    icon={<Sparkles size={16} />}
+                    style={{
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      border: 'none',
+                      boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                    }}
                   >
-                    View Issued Prescription ({prescription.medicines?.length || 0} Meds)
+                    View Consultation AI Summary
                   </Button>
-                ) : (
-                  <>
+
+                  {prescription ? (
                     <Button
-                      variant="primary"
-                      onClick={() => setShowAIExtractionReview(true)}
-                      icon={<Sparkles size={16} />}
-                      style={{
-                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                        border: 'none',
-                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
-                      }}
+                      variant="secondary"
+                      onClick={() => setShowPrescriptionView(true)}
+                      icon={<Pill size={16} color="#059669" />}
                     >
-                      AI Consultation Review & Prescription
+                      View Issued Prescription ({prescription.medicines?.length || 0} Meds)
                     </Button>
+                  ) : (
                     <Button
                       variant="secondary"
                       onClick={() => setShowPrescriptionWriter(true)}
                       icon={<Pill size={16} />}
                     >
-                      Manual Prescription Writer
+                      Write Prescription Manually
                     </Button>
-                  </>
+                  )}
+                </div>
+
+                {/* Patient Visit History Button */}
+                <Button
+                  variant="outline"
+                  onClick={() => setShowPatientHistory(!showPatientHistory)}
+                  icon={<History size={16} />}
+                  size="sm"
+                  style={{
+                    color: '#6366f1',
+                    borderColor: 'rgba(99, 102, 241, 0.3)',
+                    background: showPatientHistory ? 'rgba(99, 102, 241, 0.06)' : 'transparent',
+                    marginTop: '0.25rem',
+                  }}
+                >
+                  {showPatientHistory ? 'Hide' : 'View'} Patient Visit History
+                </Button>
+
+                {/* Patient History Panel (inline) */}
+                {showPatientHistory && meeting?.patient_id && (
+                  <div style={{ width: '100%', maxWidth: '600px', marginTop: '0.75rem' }}>
+                    <PatientHistoryForDoctor
+                      patientId={meeting.patient_id}
+                      patientName={meeting?.patient_name}
+                    />
+                  </div>
                 )}
               </div>
             )}
@@ -1084,6 +1843,20 @@ export function MeetingRoomPage() {
             setHasRated(true);
             setUserRating(r.rating);
             setToast({ type: 'success', message: 'Thank you for your rating and feedback!' });
+          }}
+        />
+
+        {/* Consultation AI Summary Modal */}
+        <ConsultationSummaryModal
+          isOpen={showConsultationSummary}
+          onClose={() => setShowConsultationSummary(false)}
+          meetingId={meetingId}
+          isDoctor={user?.role === 'doctor'}
+          doctorName={meeting?.doctor_name || 'Doctor'}
+          patientName={meeting?.patient_name || 'Patient'}
+          onOpenPrescription={() => {
+            setShowConsultationSummary(false);
+            setShowPrescriptionWriter(true);
           }}
         />
 
@@ -1126,6 +1899,7 @@ export function MeetingRoomPage() {
   // ─── Active Video Meeting Room View ──────────────────────────────────────
   return (
     <div
+      onClick={unlockAudio}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -1314,6 +2088,41 @@ export function MeetingRoomPage() {
       <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden' }}>
         {/* Video Area */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#020617' }}>
+          {/* Dedicated Remote Audio Player (Unmuted, Always Active) */}
+          <audio
+            ref={remoteAudioRef}
+            autoPlay
+            playsInline
+          />
+
+          {/* Autoplay Audio Block Banner */}
+          {audioAutoplayBlocked && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '1rem',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 50,
+                background: 'rgba(239, 68, 68, 0.95)',
+                color: '#fff',
+                padding: '0.6rem 1.25rem',
+                borderRadius: '8px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                cursor: 'pointer',
+              }}
+              onClick={unlockAudio}
+            >
+              <Mic size={18} />
+              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                Audio blocked by browser. Click here to enable sound!
+              </span>
+            </div>
+          )}
+
           {/* Remote Video (Peer) */}
           <video
             ref={remoteVideoRef}
@@ -1960,6 +2769,77 @@ export function MeetingRoomPage() {
           )}
         </button>
 
+        {/* Live Captions / Transcript Drawer Toggle */}
+        <button
+          onClick={() => setShowLiveTranscriptDrawer((v) => !v)}
+          title={showLiveTranscriptDrawer ? 'Hide Live Transcript' : 'Show Live Transcript'}
+          style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '50%',
+            background: showLiveTranscriptDrawer ? '#2563eb' : 'rgba(255,255,255,0.15)',
+            color: '#fff',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <MessageSquare size={22} />
+          {liveTranscript.length > 0 && (
+            <span
+              style={{
+                position: 'absolute',
+                top: '-2px',
+                right: '-2px',
+                background: '#10b981',
+                color: '#fff',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {liveTranscript.length}
+            </span>
+          )}
+        </button>
+
+        {/* Write Prescription (Doctor only, available during call) */}
+        {user?.role === 'doctor' && (
+          <button
+            onClick={() => setShowPrescriptionWriter(true)}
+            title="Write / Manage Prescription for Patient"
+            style={{
+              padding: '0 1.25rem',
+              height: '48px',
+              borderRadius: 'var(--radius-full)',
+              background: prescription
+                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: '#fff',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontWeight: 700,
+              fontSize: '0.875rem',
+              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+            }}
+          >
+            <Pill size={18} />
+            {prescription ? 'Prescription Saved' : 'Prescription'}
+          </button>
+        )}
+
         {/* Leave Call Button */}
         <button
           onClick={() => setShowLeaveWarning(true)}
@@ -2008,6 +2888,302 @@ export function MeetingRoomPage() {
           </button>
         )}
       </div>
+
+      {/* Live Subtitle Overlay */}
+      {interimCaption && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '95px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(15, 23, 42, 0.88)',
+            backdropFilter: 'blur(8px)',
+            padding: '0.55rem 1.25rem',
+            borderRadius: '24px',
+            border: '1px solid rgba(255,255,255,0.2)',
+            color: '#ffffff',
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            maxWidth: '80%',
+            zIndex: 30,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+          }}
+        >
+          <span
+            style={{
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              color: interimCaption.speaker === 'doctor' ? '#34d399' : '#818cf8',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {interimCaption.speakerName || (interimCaption.speaker === 'doctor' ? 'Doctor' : 'Patient')}:
+          </span>
+          <span style={{ color: '#f8fafc', wordBreak: 'break-word' }}>{interimCaption.text}</span>
+        </div>
+      )}
+
+      {/* Live Transcript Side Drawer */}
+      {showLiveTranscriptDrawer && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '75px',
+            right: '20px',
+            bottom: '95px',
+            width: '340px',
+            maxWidth: '90vw',
+            background: 'rgba(15, 23, 42, 0.96)',
+            backdropFilter: 'blur(16px)',
+            borderRadius: '16px',
+            border: '1px solid rgba(255,255,255,0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            zIndex: 40,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Header & Language Selector */}
+          <div
+            style={{
+              padding: '0.75rem 1rem',
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.5rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem' }}>
+              <MessageSquare size={16} color="#34d399" />
+              <span>Live Transcript</span>
+            </div>
+
+            {/* Language Switcher */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <button
+                type="button"
+                onClick={() => handleLanguageChange('en-US')}
+                title="Transcribe English"
+                style={{
+                  padding: '2px 7px',
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  borderRadius: '5px',
+                  border: '1px solid',
+                  borderColor: speechLang === 'en-US' ? '#3b82f6' : 'rgba(255,255,255,0.15)',
+                  background: speechLang === 'en-US' ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
+                  color: speechLang === 'en-US' ? '#93c5fd' : '#94a3b8',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLanguageChange('ur-PK')}
+                title="اردو ٹرانسکرپشن (Transcribe Urdu)"
+                style={{
+                  padding: '2px 7px',
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  borderRadius: '5px',
+                  border: '1px solid',
+                  borderColor: speechLang === 'ur-PK' ? '#10b981' : 'rgba(255,255,255,0.15)',
+                  background: speechLang === 'ur-PK' ? 'rgba(16, 185, 129, 0.3)' : 'transparent',
+                  color: speechLang === 'ur-PK' ? '#6ee7b7' : '#94a3b8',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                اردو
+              </button>
+              <button
+                onClick={() => setShowLiveTranscriptDrawer(false)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '3px', marginLeft: '4px' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+
+          {/* Status Indicator Bar */}
+          <div
+            style={{
+              padding: '0.4rem 1rem',
+              background: 'rgba(0, 0, 0, 0.35)',
+              borderBottom: '1px solid rgba(255,255,255,0.07)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.725rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor:
+                    transcriptionStatus === 'transcribing'
+                      ? '#10b981'
+                      : transcriptionStatus === 'reconnecting'
+                      ? '#f59e0b'
+                      : transcriptionStatus === 'muted'
+                      ? '#94a3b8'
+                      : '#ef4444',
+                  boxShadow:
+                    transcriptionStatus === 'transcribing'
+                      ? '0 0 8px #10b981'
+                      : 'none',
+                  animation: transcriptionStatus === 'transcribing' ? 'blink 2s infinite' : 'none',
+                }}
+              />
+              <span style={{ color: '#cbd5e1', fontWeight: 500 }}>
+                {transcriptionStatus === 'transcribing'
+                  ? `● Transcribing (${speechLang === 'ur-PK' ? 'اردو' : 'English'})`
+                  : transcriptionStatus === 'reconnecting'
+                  ? '⟳ Reconnecting transcription...'
+                  : transcriptionStatus === 'muted'
+                  ? 'Microphone muted'
+                  : transcriptionStatus === 'permission_denied'
+                  ? '⚠ Permission required'
+                  : '⚠ Live transcription unavailable'}
+              </span>
+            </div>
+            <span style={{ color: '#64748b', fontSize: '0.68rem', fontWeight: 600 }}>
+              {liveTranscript.length} {liveTranscript.length === 1 ? 'line' : 'lines'}
+            </span>
+          </div>
+
+          {/* Transcript Content List */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '0.85rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem',
+            }}
+          >
+            {liveTranscript.length === 0 && !interimCaption ? (
+              <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.8rem', padding: '2.5rem 1rem' }}>
+                <MessageSquare size={28} style={{ margin: '0 auto 0.75rem', opacity: 0.4 }} />
+                <p style={{ margin: 0 }}>Doctor and patient speech will appear live here.</p>
+                <p style={{ margin: '0.5rem 0 0', fontSize: '0.725rem', color: '#475569' }}>
+                  Select EN or اردو above to switch transcription language.
+                </p>
+              </div>
+            ) : (
+              <>
+                {liveTranscript.map((seg, idx) => {
+                  const isDoc = seg.speaker === 'doctor' || seg.participant === 'doctor';
+                  const timeStr = typeof seg.timestamp === 'number'
+                    ? `[${String(Math.floor(seg.timestamp / 60)).padStart(2, '0')}:${String(Math.floor(seg.timestamp % 60)).padStart(2, '0')}]`
+                    : '';
+                  return (
+                    <div
+                      key={seg.id || idx}
+                      style={{
+                        padding: '0.65rem 0.8rem',
+                        borderRadius: '10px',
+                        background: isDoc ? 'rgba(5, 150, 105, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                        border: `1px solid ${isDoc ? 'rgba(52, 211, 153, 0.25)' : 'rgba(129, 140, 248, 0.25)'}`,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: '0.25rem',
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            background: isDoc ? 'rgba(52, 211, 153, 0.2)' : 'rgba(129, 140, 248, 0.2)',
+                            color: isDoc ? '#34d399' : '#818cf8',
+                            letterSpacing: '0.5px',
+                          }}
+                        >
+                          {isDoc ? 'DOCTOR' : 'PATIENT'}
+                        </span>
+                        {timeStr && (
+                          <span style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                            {timeStr}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        dir="auto"
+                        style={{
+                          fontSize: '0.85rem',
+                          color: '#f1f5f9',
+                          lineHeight: 1.45,
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {seg.text}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Interim Live Speech Preview */}
+                {interimCaption && interimCaption.text && (
+                  <div
+                    style={{
+                      padding: '0.6rem 0.8rem',
+                      borderRadius: '10px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px dashed rgba(255, 255, 255, 0.2)',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    <div style={{ fontSize: '0.65rem', fontWeight: 600, color: '#94a3b8', marginBottom: '0.2rem' }}>
+                      {interimCaption.speaker === 'doctor' ? 'Doctor (speaking...)' : 'Patient (speaking...)'}
+                    </div>
+                    <div dir="auto" style={{ fontSize: '0.825rem', color: '#cbd5e1', lineHeight: 1.4 }}>
+                      {interimCaption.text}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            <div ref={transcriptBottomRef} />
+          </div>
+        </div>
+      )}
+
+      {/* In-Call Prescription Writer Modal (Doctor only) */}
+      <PrescriptionWriter
+        isOpen={showPrescriptionWriter}
+        onClose={() => setShowPrescriptionWriter(false)}
+        meetingId={meetingId}
+        patientName={meeting?.patient_name}
+        onSuccess={(rx) => {
+          setPrescription(rx);
+          setToast({ type: 'success', message: 'Prescription saved to patient records!' });
+        }}
+      />
+
+      {/* In-Call Prescription View Modal */}
+      <PrescriptionView
+        isOpen={showPrescriptionView}
+        onClose={() => setShowPrescriptionView(false)}
+        prescription={prescription}
+      />
 
       {/* Blink animation for waiting indicator */}
       <style>{`

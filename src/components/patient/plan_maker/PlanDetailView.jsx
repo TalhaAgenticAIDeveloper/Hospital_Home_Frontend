@@ -15,6 +15,97 @@ import {
 } from 'lucide-react';
 import { Button } from '../../common/Button';
 
+const stripAsterisks = (text) => {
+  if (!text) return '';
+  return String(text).replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1').replace(/\*/g, '').trim();
+};
+
+const getCategoryDetails = (item) => {
+  const cat = (item?.category || '').toLowerCase();
+  const title = (item?.title || '').toLowerCase();
+  const time = item?.time_of_day || '';
+  const calories = item?.calories;
+  const caloriesBurned = item?.calories_burned;
+
+  const parseTime = (t) => {
+    if (!t || typeof t !== 'string') return null;
+    const parts = t.trim().split(':');
+    if (parts.length < 2) return null;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    return isNaN(h) || isNaN(m) ? null : h * 60 + m;
+  };
+  const minutes = parseTime(time);
+
+  let resolvedCat = cat;
+
+  const isExercise =
+    (caloriesBurned !== null && caloriesBurned !== undefined && caloriesBurned > 0) ||
+    /walk|run|workout|exercise|gym|cardio|yoga|stretch|hiit|cycling/i.test(title);
+
+  if (isExercise) {
+    resolvedCat = 'workout';
+  } else if (/evening/i.test(cat) && minutes !== null && minutes < 1080) {
+    // If tagged as evening/evening_activity but before 18:00 (6:00 PM)
+    if (calories && calories > 0) {
+      if (minutes < 600) resolvedCat = 'breakfast';
+      else if (minutes < 705) resolvedCat = 'morning_snack';
+      else if (minutes < 885) resolvedCat = 'lunch';
+      else resolvedCat = 'afternoon_snack';
+    } else {
+      resolvedCat = minutes < 660 ? 'morning_routine' : 'midday_routine';
+    }
+  }
+
+  // Dictionary of user-friendly clean labels
+  const labelMap = {
+    breakfast: 'Breakfast',
+    morning_snack: 'Morning Snack',
+    lunch: 'Lunch',
+    afternoon_snack: 'Afternoon Snack',
+    dinner: 'Dinner',
+    evening_snack: 'Evening Snack',
+    night_snack: 'Night Snack',
+    workout: 'Workout',
+    exercise: 'Exercise',
+    morning_routine: 'Morning Routine',
+    midday_routine: 'Midday Routine',
+    evening_routine: 'Evening Routine',
+    evening_activity: 'Evening Activity',
+    sleep_routine: 'Sleep Routine',
+    night_routine: 'Night Routine',
+    hydration: 'Hydration',
+    general: 'Activity',
+  };
+
+  const label = labelMap[resolvedCat] || resolvedCat.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  // Distinct pleasant badges based on category
+  let badgeStyle = {
+    background: 'rgba(16, 185, 129, 0.12)',
+    color: '#059669',
+  };
+
+  if (/snack/i.test(resolvedCat)) {
+    badgeStyle = {
+      background: 'rgba(245, 158, 11, 0.14)',
+      color: '#d97706',
+    };
+  } else if (/workout|exercise/i.test(resolvedCat)) {
+    badgeStyle = {
+      background: 'rgba(14, 165, 233, 0.14)',
+      color: '#0284c7',
+    };
+  } else if (/routine|hydration|sleep/i.test(resolvedCat)) {
+    badgeStyle = {
+      background: 'rgba(99, 102, 241, 0.14)',
+      color: '#6366f1',
+    };
+  }
+
+  return { label, badgeStyle };
+};
+
 export function PlanDetailView({
   plan,
   onApprovePlan,
@@ -33,7 +124,23 @@ export function PlanDetailView({
   const [activeTab, setActiveTab] = useState('schedule'); // 'schedule', 'guidelines', 'chat'
   const [loggingItemId, setLoggingItemId] = useState(null);
 
-  const items = plan?.items || [];
+  const parseMinutes = (timeStr) => {
+    if (!timeStr || typeof timeStr !== 'string') return 9999;
+    const parts = timeStr.trim().split(':');
+    if (parts.length < 2) return 9999;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    return isNaN(h) || isNaN(m) ? 9999 : h * 60 + m;
+  };
+
+  const rawItems = plan?.items || [];
+  const items = [...rawItems]
+    .filter((item) => item.is_active !== false)
+    .sort((a, b) => {
+      const timeDiff = parseMinutes(a.time_of_day) - parseMinutes(b.time_of_day);
+      if (timeDiff !== 0) return timeDiff;
+      return (a.order_index ?? 0) - (b.order_index ?? 0);
+    });
   const discussions = plan?.discussions || [];
   const todayLogs = plan?.today_logs || [];
   const summary = plan?.daily_nutrition_summary;
@@ -188,6 +295,48 @@ export function PlanDetailView({
         </div>
       </div>
 
+      {/* ── Excluded / Disliked Items Preference Indicator ── */}
+      {plan?.disliked_items && plan.disliked_items.length > 0 && (
+        <div
+          style={{
+            padding: '0.65rem 1rem',
+            borderRadius: '8px',
+            background: 'rgba(239, 68, 68, 0.05)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+            fontSize: '0.85rem',
+          }}
+        >
+          <span style={{ fontWeight: 600, color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            🚫 Excluded / Disliked Preferences:
+          </span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+            {plan.disliked_items.map((it, idx) => (
+              <span
+                key={idx}
+                style={{
+                  padding: '0.15rem 0.55rem',
+                  borderRadius: '9999px',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: '#991b1b',
+                  fontWeight: 600,
+                  fontSize: '0.78rem',
+                  textTransform: 'capitalize',
+                }}
+              >
+                {it}
+              </span>
+            ))}
+          </div>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+            AI will never suggest these items
+          </span>
+        </div>
+      )}
+
       {/* ── Daily Nutrition Summary Banner ── */}
       {summary && (
         <div className="pm-nutrition-banner">
@@ -331,6 +480,7 @@ export function PlanDetailView({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
             {items.map((item) => {
               const done = isCompletedToday(item.id);
+              const { label: catLabel, badgeStyle: catBadgeStyle } = getCategoryDetails(item);
               return (
                 <div key={item.id} className={`pm-item-row ${done ? 'completed' : ''}`}>
                   {/* Status Checkbox for Active Plans */}
@@ -359,13 +509,13 @@ export function PlanDetailView({
                   {/* Time & Category */}
                   <div className="pm-item-time-col">
                     <span className="pm-item-time">{item.time_of_day}</span>
-                    <span className="pm-category-pill">{item.category}</span>
+                    <span className="pm-category-pill" style={catBadgeStyle}>{catLabel}</span>
                   </div>
 
                   {/* Body & Nutritional Impact */}
                   <div className="pm-item-body">
-                    <h4 className="pm-item-title">{item.title}</h4>
-                    <p className="pm-item-desc">{item.description}</p>
+                    <h4 className="pm-item-title">{stripAsterisks(item.title)}</h4>
+                    <p className="pm-item-desc">{stripAsterisks(item.description)}</p>
 
                     {/* Macro Tags */}
                     <div className="pm-item-nutrition-tags">
@@ -426,7 +576,7 @@ export function PlanDetailView({
             </h4>
             <ul style={{ paddingLeft: '1.2rem', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               {(plan.diet_guidelines?.items || plan.diet_guidelines || []).map((g, idx) => (
-                <li key={idx}>{g}</li>
+                <li key={idx}>{stripAsterisks(g)}</li>
               ))}
             </ul>
           </div>
@@ -439,7 +589,7 @@ export function PlanDetailView({
             </h4>
             <ul style={{ paddingLeft: '1.2rem', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               {(plan.lifestyle_guidelines?.items || plan.lifestyle_guidelines || []).map((h, idx) => (
-                <li key={idx}>{h}</li>
+                <li key={idx}>{stripAsterisks(h)}</li>
               ))}
             </ul>
           </div>
@@ -452,7 +602,7 @@ export function PlanDetailView({
             </h4>
             <ul style={{ paddingLeft: '1.2rem', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               {(plan.precautions?.items || plan.precautions || []).map((p, idx) => (
-                <li key={idx}>{p}</li>
+                <li key={idx}>{stripAsterisks(p)}</li>
               ))}
             </ul>
           </div>
@@ -478,24 +628,129 @@ export function PlanDetailView({
           <div className="pm-chat-messages">
             {discussions.map((d) => (
               <div key={d.id} className={`pm-message-bubble ${d.role}`}>
-                <div>{d.content}</div>
+                <div>
+                  {d.content
+                    ? stripAsterisks(
+                        d.content
+                          .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                          .split('PROPOSED_MODIFICATION:')[0]
+                          .trim()
+                      )
+                    : ''}
+                </div>
 
                 {/* If message includes proposed modification */}
                 {d.proposed_modifications && (
-                  <div className="pm-mod-card">
-                    <div className="pm-mod-title">
-                      <Sparkles size={15} />
-                      Proposed Schedule Adjustment
-                      <span style={{ fontSize: '0.75rem', opacity: 0.8, textTransform: 'capitalize' }}>
-                        ({d.proposed_modifications.status})
+                  <div className="pm-mod-card" style={{ marginTop: '0.85rem' }}>
+                    <div className="pm-mod-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Sparkles size={15} />
+                        <span>
+                          {d.proposed_modifications.action_type === 'add'
+                            ? 'Proposed Addition'
+                            : d.proposed_modifications.action_type === 'remove'
+                            ? 'Proposed Removal'
+                            : 'Proposed Schedule Adjustment'}
+                        </span>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '0.725rem',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '9999px',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          background:
+                            d.proposed_modifications.status === 'applied'
+                              ? 'rgba(16, 185, 129, 0.15)'
+                              : d.proposed_modifications.status === 'rejected'
+                              ? 'rgba(239, 68, 68, 0.15)'
+                              : 'rgba(59, 130, 246, 0.15)',
+                          color:
+                            d.proposed_modifications.status === 'applied'
+                              ? '#059669'
+                              : d.proposed_modifications.status === 'rejected'
+                              ? '#b91c1c'
+                              : '#2563eb',
+                        }}
+                      >
+                        {d.proposed_modifications.status}
                       </span>
                     </div>
 
-                    {d.proposed_modifications.status === 'pending' && (
-                      <div className="pm-mod-actions">
+                    {/* Detailed Change Summary */}
+                    <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                      {d.proposed_modifications.original_title && (
+                        <div style={{ color: 'var(--text-secondary)' }}>
+                          <span style={{ fontWeight: 600 }}>Original:</span> {stripAsterisks(d.proposed_modifications.original_title)}
+                        </div>
+                      )}
+                      {d.proposed_modifications.proposed_title && (
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '0.2rem' }}>
+                          <span>{d.proposed_modifications.action_type === 'add' ? 'New Item: ' : 'Proposed Alternative: '}</span>
+                          {stripAsterisks(d.proposed_modifications.proposed_title)}
+                          {d.proposed_modifications.proposed_time && (
+                            <span style={{ marginLeft: '0.5rem', fontSize: '0.78rem', color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '0.1rem 0.45rem', borderRadius: '4px' }}>
+                              {d.proposed_modifications.proposed_time}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {d.proposed_modifications.proposed_description && (
+                        <div style={{ marginTop: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.825rem' }}>
+                          {stripAsterisks(d.proposed_modifications.proposed_description)}
+                        </div>
+                      )}
+                      {d.proposed_modifications.impact_summary && (
+                        <div style={{ marginTop: '0.45rem', padding: '0.45rem 0.65rem', borderRadius: '6px', background: 'rgba(59, 130, 246, 0.08)', color: '#1d4ed8', fontSize: '0.825rem', fontWeight: 500 }}>
+                          ⚡ <strong>Plan Impact:</strong> {stripAsterisks(d.proposed_modifications.impact_summary)}
+                        </div>
+                      )}
+                      {d.proposed_modifications.adjusted_duration_weeks && (
+                        <div style={{ marginTop: '0.45rem', padding: '0.45rem 0.65rem', borderRadius: '6px', background: 'rgba(245, 158, 11, 0.12)', color: '#b45309', fontSize: '0.825rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span>📅</span>
+                          <span>Adjusted Goal Duration: {d.proposed_modifications.adjusted_duration_weeks} Weeks (Goal timeline revised for realistic results)</span>
+                        </div>
+                      )}
+
+                      {/* Nutrients chips if available */}
+                      {(d.proposed_modifications.calories || d.proposed_modifications.protein_g || d.proposed_modifications.calories_burned) && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem' }}>
+                          {d.proposed_modifications.calories !== null && d.proposed_modifications.calories !== undefined && (
+                            <span className="pm-macro-pill cal">
+                              <Flame size={12} /> {d.proposed_modifications.calories} kcal
+                            </span>
+                          )}
+                          {d.proposed_modifications.protein_g !== null && d.proposed_modifications.protein_g !== undefined && (
+                            <span className="pm-macro-pill protein">
+                              Protein: {d.proposed_modifications.protein_g}g
+                            </span>
+                          )}
+                          {d.proposed_modifications.carbs_g !== null && d.proposed_modifications.carbs_g !== undefined && (
+                            <span className="pm-macro-pill">
+                              Carbs: {d.proposed_modifications.carbs_g}g
+                            </span>
+                          )}
+                          {d.proposed_modifications.fat_g !== null && d.proposed_modifications.fat_g !== undefined && (
+                            <span className="pm-macro-pill">
+                              Fat: {d.proposed_modifications.fat_g}g
+                            </span>
+                          )}
+                          {d.proposed_modifications.calories_burned !== null && d.proposed_modifications.calories_burned !== undefined && (
+                            <span className="pm-macro-pill burned">
+                              <Flame size={12} /> Burns ~{d.proposed_modifications.calories_burned} kcal
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {(!d.proposed_modifications.status || d.proposed_modifications.status === 'pending') && (
+                      <div className="pm-mod-actions" style={{ marginTop: '0.75rem' }}>
                         <Button
                           variant="primary"
                           size="sm"
+                          disabled={isActionLoading}
                           onClick={() =>
                             onApplyModification({
                               action: 'accept',
@@ -510,6 +765,7 @@ export function PlanDetailView({
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={isActionLoading}
                           onClick={() =>
                             onApplyModification({
                               action: 'reject',

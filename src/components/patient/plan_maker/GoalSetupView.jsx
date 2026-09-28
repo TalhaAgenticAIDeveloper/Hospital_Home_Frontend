@@ -8,6 +8,7 @@ import {
   Sparkles,
   ArrowRight,
   Clock,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '../../common/Button';
 
@@ -50,7 +51,7 @@ const CATEGORIES = [
   },
 ];
 
-export function GoalSetupView({ onSubmit, isSubmitting }) {
+export function GoalSetupView({ onSubmit, isSubmitting, errorMessage = '' }) {
   const [category, setCategory] = useState('weight_management');
   const [title, setTitle] = useState('');
   const [targetDescription, setTargetDescription] = useState('');
@@ -61,10 +62,6 @@ export function GoalSetupView({ onSubmit, isSubmitting }) {
     e.preventDefault();
     if (!title.trim()) {
       setError('Please provide a title for your wellness goal.');
-      return;
-    }
-    if (!targetDescription.trim() || targetDescription.length < 10) {
-      setError('Please describe your target outcome in a little more detail (at least 10 characters).');
       return;
     }
     setError('');
@@ -148,19 +145,18 @@ export function GoalSetupView({ onSubmit, isSubmitting }) {
           />
         </div>
 
-        {/* 3. Target Description */}
+        {/* 3. Target Description (Optional) */}
         <div className="pm-form-group">
           <label className="pm-form-label" htmlFor="goal-desc">
-            3. What specific outcome are you targeting?
+            3. What specific outcome are you targeting? <span style={{ fontSize: '0.85rem', fontWeight: 400, color: 'var(--text-secondary)' }}>(Optional)</span>
           </label>
           <textarea
             id="goal-desc"
             className="pm-form-textarea"
             rows={3}
-            placeholder="e.g. I want to lose weight sustainably, maintain high energy for office work, and include home-cooked meals like roti, daal, and chicken with a 400 kcal deficit."
+            placeholder="e.g. I want to lose weight sustainably, maintain high energy for office work (optional)."
             value={targetDescription}
             onChange={(e) => setTargetDescription(e.target.value)}
-            required
           />
         </div>
 
@@ -183,13 +179,34 @@ export function GoalSetupView({ onSubmit, isSubmitting }) {
           </select>
         </div>
 
+        {/* Active Error Banner right above submit button */}
+        {(error || errorMessage) && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              padding: '0.85rem 1.25rem',
+              marginTop: '1.25rem',
+              borderRadius: '10px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              color: '#b91c1c',
+              fontSize: '0.9rem',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+            }}
+          >
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <span>{error || errorMessage}</span>
+          </div>
+        )}
+
         {/* Submit Button */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.25rem' }}>
           <Button
             type="submit"
             variant="primary"
             size="lg"
-            isLoading={isSubmitting}
+            loading={isSubmitting}
             icon={<ArrowRight size={18} />}
           >
             Continue to Questionnaire

@@ -28,7 +28,18 @@ export function PlanMaker() {
         return;
       }
 
-      // 2. Check for current goal / draft plan in progress
+      // 2. Check for any existing plans (ready, draft, paused)
+      const allPlans = await patientPlanApi.listPlans();
+      if (allPlans && allPlans.length > 0) {
+        const planDetail = await patientPlanApi.getPlanDetail(allPlans[0].id);
+        if (planDetail) {
+          setCurrentPlan(planDetail);
+          setViewState('plan_detail');
+          return;
+        }
+      }
+
+      // 3. Check for current in-progress goal / questionnaire
       const goal = await patientPlanApi.getCurrentGoal();
       if (goal && goal.id) {
         setCurrentGoal(goal);
@@ -54,7 +65,7 @@ export function PlanMaker() {
         }
       }
 
-      // 3. Default to goal setup
+      // 4. Default to goal setup
       setViewState('goal_setup');
     } catch (err) {
       console.error('Error initializing Plan Maker:', err);
@@ -85,11 +96,13 @@ export function PlanMaker() {
   };
 
   // Handler: Answer Submission
-  const handleAnswerQuestion = async (questionKey, rawAnswer) => {
+  const handleAnswerQuestion = async (questionId, rawAnswer, options = {}) => {
     if (!currentGoal) return null;
     const res = await patientPlanApi.answerQuestion(currentGoal.id, {
-      question_key: questionKey,
-      raw_answer: rawAnswer,
+      question_id: questionId,
+      raw_input: rawAnswer || '',
+      allow_warning: options.allow_warning || false,
+      is_skipped: options.is_skipped || false,
     });
     // Refresh goal state to maintain updated answer list
     const updatedGoal = await patientPlanApi.getCurrentGoal();
@@ -271,6 +284,7 @@ export function PlanMaker() {
         <GoalSetupView
           onSubmit={handleCreateGoal}
           isSubmitting={isSubmitting}
+          errorMessage={errorMessage}
         />
       )}
 

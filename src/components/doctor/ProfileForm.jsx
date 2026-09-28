@@ -3,13 +3,28 @@ import { Input } from '../common/Input';
 import { Button } from '../common/Button';
 import { Toast } from '../common/Toast';
 import { doctorApi } from '../../api/doctor';
-import { Save, User, Users, ShieldCheck, Phone, Award, Clock, GraduationCap } from 'lucide-react';
+import {
+  Save,
+  User,
+  Users,
+  ShieldCheck,
+  Phone,
+  Award,
+  Clock,
+  GraduationCap,
+  Coins,
+  Lock,
+  CheckCircle2,
+} from 'lucide-react';
 
 export function ProfileForm({ initialData, onProfileUpdated, disabled = false }) {
+  const isApproved = initialData?.status === 'active';
+
   const [formData, setFormData] = useState({
     full_name: '',
     father_name: '',
     pmdc_registration_number: '',
+    consultation_fee: '',
     phone_number: '',
     specialization: '',
     years_of_experience: 0,
@@ -26,7 +41,8 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
       setFormData({
         full_name: initialData.full_name || '',
         father_name: initialData.father_name || '',
-        pmdc_registration_number: initialData.pmdc_registration_number || initialData.license_number || '',
+        pmdc_registration_number: initialData.pmdc_registration_number || '',
+        consultation_fee: initialData.consultation_fee != null ? initialData.consultation_fee : '',
         phone_number: initialData.phone_number || '',
         specialization: initialData.specialization || '',
         years_of_experience: initialData.years_of_experience ?? 0,
@@ -40,7 +56,10 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
     const { name, value, type } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: type === 'number' ? parseInt(value, 10) || 0 : value,
+      [name]:
+        type === 'number'
+          ? value === '' ? '' : parseFloat(value) || 0
+          : value,
     }));
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: null }));
@@ -49,9 +68,18 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
 
   const validate = () => {
     const errs = {};
-    if (!formData.full_name.trim()) errs.full_name = 'Full name is required';
-    if (!formData.father_name.trim()) errs.father_name = "Father's name is required";
-    if (!formData.pmdc_registration_number.trim()) errs.pmdc_registration_number = 'PMDC registration number is required';
+    if (!isApproved) {
+      if (!formData.full_name.trim()) errs.full_name = 'Full name is required';
+      if (!formData.father_name.trim()) errs.father_name = "Father's name is required";
+      if (!formData.pmdc_registration_number.trim()) errs.pmdc_registration_number = 'PMDC registration number is required';
+    }
+
+    if (formData.consultation_fee === '' || formData.consultation_fee === null || isNaN(formData.consultation_fee)) {
+      errs.consultation_fee = 'Consultation fee is required';
+    } else if (Number(formData.consultation_fee) < 0) {
+      errs.consultation_fee = 'Consultation fee cannot be negative';
+    }
+
     if (formData.years_of_experience < 0) errs.years_of_experience = 'Experience cannot be negative';
 
     setErrors(errs);
@@ -61,7 +89,10 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) {
-      setToast({ type: 'error', message: 'Please provide all mandatory fields (Full Name, Father Name, PMDC Reg No).' });
+      setToast({
+        type: 'error',
+        message: 'Please provide all mandatory fields (Full Name, Father Name, PMDC Reg No, Consultation Fee).',
+      });
       return;
     }
 
@@ -69,7 +100,11 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
     setToast(null);
 
     try {
-      const updatedProfile = await doctorApi.updateProfile(formData);
+      const payload = {
+        ...formData,
+        consultation_fee: Number(formData.consultation_fee),
+      };
+      const updatedProfile = await doctorApi.updateProfile(payload);
       setToast({ type: 'success', message: 'Profile details saved successfully!' });
       if (onProfileUpdated) onProfileUpdated(updatedProfile);
     } catch (err) {
@@ -83,55 +118,127 @@ export function ProfileForm({ initialData, onProfileUpdated, disabled = false })
     <div className="card">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
         <div>
-          <h3>Doctor Profile & Verification Details</h3>
-          <p style={{ fontSize: '0.85rem' }}>
-            Full Name, Father Name, and PMDC Registration Number are mandatory for regulatory verification.
+          <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Doctor Profile & Practice Settings</h3>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+            {isApproved
+              ? 'Your account is approved. Legal credentials are locked, but Consultation Fee and professional details can be updated at any time.'
+              : 'Full Name, Father Name, PMDC Registration Number, and Consultation Fee are mandatory for regulatory verification.'}
           </p>
         </div>
       </div>
+
+      {isApproved && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.65rem',
+            padding: '0.85rem 1rem',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 'var(--radius-sm)',
+            marginBottom: '1.25rem',
+            fontSize: '0.85rem',
+            color: '#334155',
+          }}
+        >
+          <Lock size={18} color="var(--primary)" style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Verified Account:</strong> Your <strong>Full Name</strong>, <strong>Father's Name</strong>, and <strong>PMDC Registration Number</strong> are fixed and cannot be edited. Your <strong>Consultation Fee</strong> and other details remain fully editable.
+          </span>
+        </div>
+      )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
       <form onSubmit={handleSubmit}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-          {/* Mandatory: Full Name */}
-          <Input
-            label="Full Doctor Name *"
-            name="full_name"
-            value={formData.full_name}
-            onChange={handleChange}
-            placeholder="e.g. Dr. Sarah Jenkins"
-            error={errors.full_name}
-            icon={<User size={16} />}
-            required
-            disabled={disabled}
-          />
+          {/* Mandatory: Full Name (Locked when approved) */}
+          <div>
+            <Input
+              label={
+                isApproved ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    Full Doctor Name <Lock size={13} color="var(--text-muted)" /> (Locked)
+                  </span>
+                ) : (
+                  'Full Doctor Name *'
+                )
+              }
+              name="full_name"
+              value={formData.full_name}
+              onChange={handleChange}
+              placeholder="e.g. Dr. Sarah Jenkins"
+              error={errors.full_name}
+              icon={<User size={16} />}
+              required
+              disabled={disabled || isApproved}
+            />
+          </div>
 
-          {/* Mandatory: Father Name */}
-          <Input
-            label="Father's Name *"
-            name="father_name"
-            value={formData.father_name}
-            onChange={handleChange}
-            placeholder="e.g. Muhammad Jenkins"
-            error={errors.father_name}
-            icon={<Users size={16} />}
-            required
-            disabled={disabled}
-          />
+          {/* Mandatory: Father Name (Locked when approved) */}
+          <div>
+            <Input
+              label={
+                isApproved ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    Father's Name <Lock size={13} color="var(--text-muted)" /> (Locked)
+                  </span>
+                ) : (
+                  "Father's Name *"
+                )
+              }
+              name="father_name"
+              value={formData.father_name}
+              onChange={handleChange}
+              placeholder="e.g. Muhammad Jenkins"
+              error={errors.father_name}
+              icon={<Users size={16} />}
+              required
+              disabled={disabled || isApproved}
+            />
+          </div>
 
-          {/* Mandatory: PMDC Registration Number */}
-          <Input
-            label="PMDC Registration Number *"
-            name="pmdc_registration_number"
-            value={formData.pmdc_registration_number}
-            onChange={handleChange}
-            placeholder="e.g. 12345-P or 98765-S"
-            error={errors.pmdc_registration_number}
-            icon={<ShieldCheck size={16} />}
-            required
-            disabled={disabled}
-          />
+          {/* Mandatory: PMDC Registration Number (Locked when approved) */}
+          <div>
+            <Input
+              label={
+                isApproved ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    PMDC Registration Number <Lock size={13} color="var(--text-muted)" /> (Locked)
+                  </span>
+                ) : (
+                  'PMDC Registration Number *'
+                )
+              }
+              name="pmdc_registration_number"
+              value={formData.pmdc_registration_number}
+              onChange={handleChange}
+              placeholder="e.g. 12345-P or 98765-S"
+              error={errors.pmdc_registration_number}
+              icon={<ShieldCheck size={16} />}
+              required
+              disabled={disabled || isApproved}
+            />
+          </div>
+
+          {/* Mandatory: Consultation Fee (Always Editable!) */}
+          <div>
+            <Input
+              label="Consultation Fee (PKR) *"
+              name="consultation_fee"
+              type="number"
+              value={formData.consultation_fee}
+              onChange={handleChange}
+              placeholder="e.g. 2000"
+              error={errors.consultation_fee}
+              icon={<Coins size={16} />}
+              required
+              min="0"
+              step="50"
+              disabled={disabled}
+            />
+          </div>
 
           {/* Optional: Specialization */}
           <Input

@@ -114,25 +114,29 @@ export function AIExtractionReview({
     setViewStatus('loading');
     setErrorMessage('');
     setValidationError('');
+    console.log('[AIReview] loadInitialData called for meetingId:', meetingId);
 
     try {
       // 1. Fetch current status
       const statusRes = await consultationAiApi.getStatus(meetingId);
+      console.log('[AIReview] Status response:', JSON.stringify(statusRes));
 
-      if (statusRes.can_approve && statusRes.extraction_status === 'completed') {
-        // Extraction is ready
+      if (statusRes.extraction_status === 'completed') {
+        console.log('[AIReview] Extraction completed, fetching data...');
         await fetchExtractionData();
       } else if (
         statusRes.transcription_status === 'processing' ||
         statusRes.transcription_status === 'pending' ||
-        statusRes.extraction_status === 'processing'
+        statusRes.extraction_status === 'processing' ||
+        (!statusRes.transcription_status && (statusRes.has_doctor_audio || statusRes.has_patient_audio))
       ) {
         // Currently in progress, start polling
+        console.log('[AIReview] Pipeline in progress, starting polling...');
         setViewStatus('processing');
         setStatusMessage(
-          statusRes.transcription_status === 'processing'
-            ? 'Transcribing consultation audio (Speech-to-Text)...'
-            : 'Analyzing dialogue & extracting clinical documentation...'
+          statusRes.extraction_status === 'processing'
+            ? 'Analyzing dialogue & extracting clinical documentation...'
+            : 'Transcribing consultation audio (Speech-to-Text)...'
         );
         startPolling();
       } else if (
@@ -140,37 +144,61 @@ export function AIExtractionReview({
         (!statusRes.extraction_status || statusRes.extraction_status === 'failed')
       ) {
         // Transcript is ready, but extraction not started or failed
-        // Trigger extraction automatically
+        console.log('[AIReview] Transcript completed but extraction missing/failed, triggering extraction...');
         await handleStartExtraction();
       } else if (statusRes.transcription_status === 'failed') {
+        console.warn('[AIReview] Transcription FAILED:', statusRes.error_message);
         setViewStatus('failed');
-        setErrorMessage(statusRes.transcript_error || 'Audio transcription encountered an issue.');
+        setErrorMessage(statusRes.error_message || statusRes.transcript_error || 'Audio transcription encountered an issue.');
       } else {
-        // Fallback: attempt to load extraction anyway
-        await fetchExtractionData();
+        // No extraction in DB yet. Attempt to initiate extraction
+        console.log('[AIReview] No status found, attempting to initiate extraction...', statusRes);
+        try {
+          setViewStatus('processing');
+          setStatusMessage('Initiating AI clinical extraction...');
+          await consultationAiApi.startExtraction(meetingId);
+          console.log('[AIReview] Extraction initiated successfully, starting poll...');
+          startPolling();
+        } catch (autoErr) {
+          console.error('[AIReview] Auto-initiate extraction failed:', autoErr);
+          setViewStatus('failed');
+          setErrorMessage(
+            autoErr?.message || autoErr?.detail ||
+            'No audio recording or clinical notes were found for this consultation. Please use the Manual Prescription Writer to create a prescription.'
+          );
+        }
       }
     } catch (err) {
-      console.error('Error fetching consultation AI status:', err);
+      console.error('[AIReview] CRITICAL: Error fetching consultation AI status:', err);
       setViewStatus('failed');
-      setErrorMessage(err?.detail || err?.message || 'Failed to connect to consultation AI service.');
+      setErrorMessage(err?.message || err?.detail || 'Failed to connect to consultation AI service.');
     }
   };
 
   const startPolling = () => {
     if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+    console.log('[AIReview] Starting polling every 2.5s...');
 
     pollingTimerRef.current = setInterval(async () => {
       try {
         const res = await consultationAiApi.getStatus(meetingId);
+        console.log('[AIReview] Poll result:', {
+          transcription: res.transcription_status,
+          extraction: res.extraction_status,
+          has_doctor_audio: res.has_doctor_audio,
+          has_patient_audio: res.has_patient_audio,
+        });
 
         if (res.extraction_status === 'completed') {
+          console.log('[AIReview] Extraction completed via polling!');
           clearInterval(pollingTimerRef.current);
           await fetchExtractionData();
         } else if (res.transcription_status === 'failed' || res.extraction_status === 'failed') {
+          console.warn('[AIReview] Pipeline FAILED via polling:', res.error_message);
           clearInterval(pollingTimerRef.current);
           setViewStatus('failed');
           setErrorMessage(
-            res.extraction_error || res.transcript_error || 'Processing failed. You can retry or switch to manual prescription.'
+            res.error_message || res.extraction_error || res.transcript_error || 'Processing failed. You can retry or switch to manual prescription.'
           );
         } else {
           // Update status message based on current stage
@@ -181,14 +209,23 @@ export function AIExtractionReview({
           }
         }
       } catch (err) {
-        console.error('Polling error:', err);
+        console.error('[AIReview] Polling error:', err);
       }
     }, 2500);
   };
 
   const fetchExtractionData = async (version = null) => {
+    console.log('[AIReview] fetchExtractionData called, version:', version);
     try {
       const data = await consultationAiApi.getExtraction(meetingId, version);
+      console.log('[AIReview] Extraction data received:', {
+        id: data.id,
+        version: data.version,
+        status: data.status,
+        has_extraction_data: !!data.extraction_data,
+        medications: data.extraction_data?.medications?.length || 0,
+        diagnoses: data.extraction_data?.diagnoses?.length || 0,
+      });
       setExtraction(data);
       setSelectedVersion(data.version);
 
@@ -266,35 +303,59 @@ export function AIExtractionReview({
 
       setViewStatus('ready');
     } catch (err) {
-      console.error('Error fetching extraction details:', err);
+      console.error('[AIReview] Error fetching extraction details:', err);
+      try {
+        const s = await consultationAiApi.getStatus(meetingId);
+        console.log('[AIReview] Fallback status check:', JSON.stringify(s));
+        if (s && (s.extraction_status === 'processing' || s.transcription_status === 'processing' || (!s.extraction_status && s.has_doctor_audio))) {
+          setViewStatus('processing');
+          setStatusMessage('Clinical documentation is being prepared by AI...');
+          startPolling();
+          return;
+        }
+      } catch (e) {}
+
       setViewStatus('failed');
       setErrorMessage(err?.detail || err?.message || 'Could not load extraction data.');
     }
   };
 
   const handleStartExtraction = async () => {
+    console.log('[AIReview] handleStartExtraction called');
     setViewStatus('processing');
     setStatusMessage('Initiating AI extraction pipeline...');
     try {
-      await consultationAiApi.startExtraction(meetingId);
+      const res = await consultationAiApi.startExtraction(meetingId);
+      console.log('[AIReview] Extraction started:', res);
       startPolling();
     } catch (err) {
-      console.error('Error starting extraction:', err);
+      console.error('[AIReview] Error starting extraction:', err);
       setViewStatus('failed');
-      setErrorMessage(err?.detail || err?.message || 'Failed to start AI extraction.');
+      setErrorMessage(err?.message || err?.detail || 'Failed to start AI extraction.');
     }
   };
 
   const handleRegenerate = async () => {
     if (isRegenerating) return;
     setIsRegenerating(true);
+    setViewStatus('processing');
+    setErrorMessage('');
     try {
-      await consultationAiApi.startExtraction(meetingId);
-      setViewStatus('processing');
-      setStatusMessage('Regenerating clinical extraction with Groq LLM...');
+      const status = await consultationAiApi.getStatus(meetingId);
+      if (status.transcription_status === 'completed') {
+        setStatusMessage('Generating clinical extraction with Groq AI...');
+        await consultationAiApi.startExtraction(meetingId);
+      } else if (status.has_doctor_audio || status.has_patient_audio) {
+        setStatusMessage('Transcribing consultation audio (Speech-to-Text)...');
+        await consultationAiApi.startTranscription(meetingId);
+      } else {
+        setStatusMessage('Analyzing consultation notes & generating extraction...');
+        await consultationAiApi.startExtraction(meetingId);
+      }
       startPolling();
     } catch (err) {
-      setValidationError(err?.detail || err?.message || 'Failed to trigger regeneration.');
+      setViewStatus('failed');
+      setErrorMessage(err?.detail || err?.message || 'Failed to trigger AI processing. You can write the prescription manually.');
     } finally {
       setIsRegenerating(false);
     }
@@ -798,11 +859,32 @@ export function AIExtractionReview({
                   <AlertCircle size={28} />
                 </div>
                 <h3 style={{ margin: '0 0 0.5rem 0', color: '#991b1b', fontSize: '1.2rem', fontWeight: 700 }}>
-                  AI Documentation Unavailable
+                  AI Documentation Issue
                 </h3>
                 <p style={{ margin: '0 0 1.5rem 0', color: '#64748b', fontSize: '0.9rem', lineHeight: 1.5 }}>
                   {errorMessage || 'The automated transcription or extraction could not be completed.'}
                 </p>
+                {errorMessage && (
+                  <div
+                    style={{
+                      textAlign: 'left',
+                      background: '#fff5f5',
+                      border: '1px solid #fed7d7',
+                      borderRadius: '8px',
+                      padding: '0.75rem 1rem',
+                      marginBottom: '1rem',
+                      fontSize: '0.8rem',
+                      color: '#c53030',
+                      fontFamily: 'monospace',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                      maxHeight: '120px',
+                      overflowY: 'auto',
+                    }}
+                  >
+                    <strong>Error Detail:</strong> {errorMessage}
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', justifyContent: 'center', gap: '0.85rem' }}>
                   <Button variant="outline" onClick={handleRegenerate} loading={isRegenerating}>

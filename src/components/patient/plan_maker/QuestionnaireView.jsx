@@ -6,6 +6,7 @@ import {
   Sparkles,
   CheckCircle2,
   AlertCircle,
+  SkipForward,
 } from 'lucide-react';
 import { Button } from '../../common/Button';
 
@@ -16,14 +17,22 @@ export function QuestionnaireView({
   isGenerating,
 }) {
   const questions = goal?.questions || [];
-  const answers = goal?.answers || [];
+  // Build answers array from each question's current_answer (backend nests answers inside questions)
+  const answers = questions
+    .filter((q) => q.current_answer)
+    .map((q) => ({
+      question_id: q.id,
+      raw_input: q.current_answer.raw_input,
+      validation_status: q.current_answer.validation_status,
+      is_skipped: q.current_answer.is_skipped,
+    }));
 
-  // Find index of first unanswered required question or default to 0
+  // Find index of first unanswered question (neither valid nor skipped) or default to 0
   const findInitialIndex = () => {
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const hasAnswer = answers.some(
-        (a) => a.question_id === q.id && a.validation_status === 'valid'
+        (a) => a.question_id === q.id && (a.validation_status === 'valid' || a.validation_status === 'skipped')
       );
       if (!hasAnswer) return i;
     }
@@ -37,23 +46,44 @@ export function QuestionnaireView({
 
   const currentQ = questions[currentIndex];
   const totalQuestions = questions.length;
-  const answeredCount = answers.filter((a) => a.validation_status === 'valid').length;
+  const isLastQuestion = currentIndex === totalQuestions - 1;
+
+  const currentAnswer = answers.find((a) => a.question_id === currentQ?.id);
+  const isCurrentAnswerValid = currentAnswer?.validation_status === 'valid' || currentAnswer?.validation_status === 'skipped';
+  const isCurrentSaved =
+    (isCurrentAnswerValid && currentInput.trim() === (currentAnswer?.raw_input || '').trim()) ||
+    (currentAnswer?.validation_status === 'skipped' && !currentInput.trim());
+
+  const answeredCount = answers.filter((a) => a.validation_status === 'valid' || a.validation_status === 'skipped').length;
   const progressPercent = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0;
   const isAllAnswered = answeredCount === totalQuestions && totalQuestions > 0;
+
+  // Disable Save & Next on the last question when it has been saved or all questions are completed
+  const isSaveNextDisabled =
+    isSubmittingAnswer ||
+    (isLastQuestion && (isAllAnswered || isCurrentSaved));
 
   // Sync existing answer when navigating to a question
   React.useEffect(() => {
     if (currentQ) {
       const existing = answers.find((a) => a.question_id === currentQ.id);
-      setCurrentInput(existing?.raw_input || '');
+      // If it was skipped, leave input empty so user can freely type if they want to override
+      if (existing?.validation_status === 'skipped') {
+        setCurrentInput('');
+      } else {
+        setCurrentInput(existing?.raw_input || '');
+      }
       setFeedback(null);
     }
   }, [currentIndex, currentQ?.id]);
 
   const handleSubmitAnswer = async (e) => {
     if (e) e.preventDefault();
-    if (!currentInput.trim() && currentQ?.is_required) {
-      setFeedback({ type: 'error', message: 'This question requires an answer before continuing.' });
+    if (!currentInput.trim()) {
+      setFeedback({
+        type: 'warning',
+        message: 'Please enter an answer, or click "Skip Question" to proceed with standard recommendations.',
+      });
       return;
     }
 
@@ -61,26 +91,91 @@ export function QuestionnaireView({
     setFeedback(null);
 
     try {
-      const res = await onAnswerSubmitted(currentQ.question_key, currentInput.trim());
+      const res = await onAnswerSubmitted(currentQ.id, currentInput.trim());
       if (res?.validation_status === 'valid') {
-        setFeedback({ type: 'success', message: res.feedback_message || 'Saved successfully!' });
-        // Automatically advance after brief success state if not last question
-        if (currentIndex < totalQuestions - 1) {
+        const isFinal = currentIndex === totalQuestions - 1;
+        setFeedback({
+          type: 'success',
+          message: res.clarification_message || (isFinal ? 'All questions completed! You can now generate your plan below.' : 'Saved successfully!'),
+        });
+        if (!isFinal) {
           setTimeout(() => {
             setCurrentIndex((prev) => prev + 1);
             setFeedback(null);
           }, 400);
         }
-      } else {
+      } else if (res?.validation_status === 'warning') {
         setFeedback({
           type: 'warning',
-          message: res?.feedback_message || 'Please review your input format.',
+          message: res.clarification_message || 'Please review this advisory note.',
+          canProceedAnyway: true,
+        });
+      } else {
+        setFeedback({
+          type: 'error',
+          message: res?.clarification_message || 'Please enter a valid response.',
         });
       }
     } catch (err) {
       setFeedback({
         type: 'error',
         message: err.message || 'Could not save answer. Please try again.',
+      });
+    } finally {
+      setIsSubmittingAnswer(false);
+    }
+  };
+
+  const handleSkipQuestion = async () => {
+    if (!currentQ) return;
+    setIsSubmittingAnswer(true);
+    setFeedback(null);
+
+    try {
+      const res = await onAnswerSubmitted(currentQ.id, 'Skipped', { is_skipped: true });
+      const isFinal = currentIndex === totalQuestions - 1;
+      setFeedback({
+        type: 'success',
+        message: res?.clarification_message || (isFinal ? 'Question skipped. All questions completed! You can now generate your plan below.' : 'Question skipped. Proceeding with standard recommendations.'),
+      });
+      setCurrentInput('');
+      if (!isFinal) {
+        setTimeout(() => {
+          setCurrentIndex((prev) => prev + 1);
+          setFeedback(null);
+        }, 350);
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Could not skip question. Please try again.',
+      });
+    } finally {
+      setIsSubmittingAnswer(false);
+    }
+  };
+
+  const handleProceedWithWarning = async () => {
+    setIsSubmittingAnswer(true);
+    try {
+      const res = await onAnswerSubmitted(currentQ.id, currentInput.trim(), { allow_warning: true });
+      if (res?.validation_status === 'valid' || res?.validation_status === 'warning') {
+        const isFinal = currentIndex === totalQuestions - 1;
+        setFeedback({
+          type: 'success',
+          message: isFinal ? 'All questions completed! You can now generate your plan below.' : 'Noted! Proceeding to next question.',
+        });
+        if (!isFinal) {
+          setTimeout(() => {
+            setCurrentIndex((prev) => prev + 1);
+            setFeedback(null);
+          }, 350);
+        }
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Could not proceed. Please try again.',
       });
     } finally {
       setIsSubmittingAnswer(false);
@@ -174,6 +269,25 @@ export function QuestionnaireView({
                   {currentQ.help_text}
                 </p>
               )}
+              {currentAnswer?.validation_status === 'skipped' && (
+                <div
+                  style={{
+                    marginTop: '0.45rem',
+                    fontSize: '0.785rem',
+                    color: '#6b7280',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    background: 'rgba(107, 114, 128, 0.1)',
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: '6px',
+                    fontWeight: 500,
+                  }}
+                >
+                  <SkipForward size={13} />
+                  <span>Question Skipped (Standard clinical recommendations will be used)</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -186,6 +300,7 @@ export function QuestionnaireView({
                 fontSize: '0.85rem',
                 display: 'flex',
                 alignItems: 'center',
+                flexWrap: 'wrap',
                 gap: '0.5rem',
                 background:
                   feedback.type === 'error'
@@ -209,51 +324,82 @@ export function QuestionnaireView({
               }}
             >
               {feedback.type === 'error' ? (
-                <AlertCircle size={16} />
+                <AlertCircle size={16} style={{ flexShrink: 0 }} />
               ) : (
-                <CheckCircle2 size={16} />
+                <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
               )}
-              <span>{feedback.message}</span>
+              <span style={{ flex: 1, minWidth: '200px' }}>{feedback.message}</span>
+              {feedback.canProceedAnyway && (
+                <button
+                  type="button"
+                  onClick={handleProceedWithWarning}
+                  disabled={isSubmittingAnswer}
+                  style={{
+                    marginLeft: 'auto',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    background: '#f59e0b',
+                    color: '#ffffff',
+                    border: 'none',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'opacity 0.2s',
+                  }}
+                >
+                  {isSubmittingAnswer ? 'Processing...' : 'Continue Anyway →'}
+                </button>
+              )}
             </div>
           )}
 
           {/* Options / Input based on question_type */}
           <div className="pm-question-input-wrapper">
-            {currentQ.question_type === 'select' && currentQ.options?.items ? (
-              <div className="pm-options-grid">
-                {currentQ.options.items.map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    className={`pm-option-btn ${currentInput === opt ? 'selected' : ''}`}
-                    onClick={() => handleSelectOption(opt)}
-                  >
-                    {opt}
-                  </button>
-                ))}
+            {currentQ.question_type === 'select' && (Array.isArray(currentQ.options) ? currentQ.options : currentQ.options?.items) ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', width: '100%' }}>
+                <div className="pm-options-grid">
+                  {(Array.isArray(currentQ.options) ? currentQ.options : currentQ.options.items).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      className={`pm-option-btn ${currentInput === opt ? 'selected' : ''}`}
+                      onClick={() => handleSelectOption(opt)}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ marginTop: '0.25rem' }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem', display: 'block', fontWeight: 500 }}>
+                    Or type your custom answer freely:
+                  </label>
+                  <input
+                    type="text"
+                    className="pm-form-input"
+                    placeholder="Type anything here (e.g. custom preference or routine)..."
+                    value={currentInput}
+                    onChange={(e) => setCurrentInput(e.target.value)}
+                  />
+                </div>
               </div>
             ) : currentQ.question_type === 'number' ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', maxWidth: '280px' }}>
+              <div style={{ maxWidth: '420px', width: '100%' }}>
                 <input
-                  type="number"
-                  step="any"
+                  type="text"
                   className="pm-form-input"
-                  placeholder="Enter number..."
+                  placeholder="Enter your answer with unit (e.g. 70 kg, 150 lb, 175 cm)..."
                   value={currentInput}
                   onChange={(e) => setCurrentInput(e.target.value)}
                   autoFocus
                 />
-                {currentQ.unit && (
-                  <span style={{ fontWeight: 600, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                    {currentQ.unit}
-                  </span>
-                )}
               </div>
             ) : currentQ.question_type === 'time' ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', maxWidth: '200px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', maxWidth: '260px', width: '100%' }}>
                 <input
-                  type="time"
+                  type="text"
                   className="pm-form-input"
+                  placeholder="e.g. 07:30 AM or 8:00"
                   value={currentInput}
                   onChange={(e) => setCurrentInput(e.target.value)}
                   autoFocus
@@ -284,15 +430,33 @@ export function QuestionnaireView({
               Previous
             </Button>
 
-            <div style={{ display: 'flex', gap: '0.65rem' }}>
+            <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isSubmittingAnswer}
+                onClick={handleSkipQuestion}
+                icon={<SkipForward size={14} />}
+                style={{
+                  borderColor: 'rgba(156, 163, 175, 0.45)',
+                  color: 'var(--text-secondary)',
+                }}
+                title="Skip this question and continue with standard clinical recommendations"
+              >
+                Skip Question
+              </Button>
+
               <Button
                 type="submit"
                 variant="primary"
                 size="sm"
+                disabled={isSaveNextDisabled}
                 isLoading={isSubmittingAnswer}
-                icon={<ArrowRight size={15} />}
+                icon={isSaveNextDisabled ? <CheckCircle2 size={15} /> : <ArrowRight size={15} />}
+                title={isSaveNextDisabled ? "All questions completed. This is the last question." : undefined}
               >
-                Save & Next
+                {isLastQuestion && (isAllAnswered || isCurrentSaved) ? 'Save & Next (Last Question)' : 'Save & Next'}
               </Button>
             </div>
           </div>
