@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DashboardSidebar } from './DashboardSidebar';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -8,6 +9,7 @@ import {
   Sparkles,
   ChevronRight,
   ExternalLink,
+  LogOut,
 } from 'lucide-react';
 
 export function DashboardLayout({
@@ -22,7 +24,13 @@ export function DashboardLayout({
   quickAction = null,
   children,
 }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem('medtrust_sidebar_collapsed') === 'true';
@@ -92,6 +100,17 @@ export function DashboardLayout({
                 {headerActions}
               </div>
             )}
+
+            {/* Mobile-only Logout Button */}
+            <button
+              type="button"
+              className="topbar-mobile-logout mobile-only"
+              onClick={handleLogout}
+              title="Sign Out"
+              aria-label="Sign Out"
+            >
+              <LogOut size={18} />
+            </button>
           </div>
         </header>
 

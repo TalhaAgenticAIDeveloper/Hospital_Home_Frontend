@@ -2236,6 +2236,27 @@
   gap: 0.5rem;
 }
 
+.topbar-mobile-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-card, #ffffff);
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.topbar-mobile-logout:hover {
+  background: #fef2f2;
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+
 /* ── Main Viewport Content ─────────────────────────────────────────────── */
 .dashboard-main-content {
   flex: 1;
