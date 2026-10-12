@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { DocumentViewerModal } from '../common/DocumentViewerModal';
 import { DocumentSummaryModal } from './DocumentSummaryModal';
+import { formatPktDate, formatPktTime } from '../../utils/dateUtils';
 
 export function DoctorMeetingsList() {
   const navigate = useNavigate();
@@ -336,12 +337,12 @@ export function DoctorMeetingsList() {
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
                         <Calendar size={15} color="var(--primary)" />
-                        <strong>{startDt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
+                        <strong>{formatPktDate(m.start_time)}</strong>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <Clock size={15} color="var(--primary)" />
                         <span>
-                          {startDt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {endDt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatPktTime(m.start_time)} – {formatPktTime(m.end_time)}
                         </span>
                       </div>
                     </div>
@@ -578,13 +579,12 @@ export function DoctorMeetingsList() {
               </thead>
               <tbody>
                 {pastMeetings.map((m) => {
-                  const dt = new Date(m.start_time);
                   return (
                     <tr key={m.id}>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{dt.toLocaleDateString()}</div>
+                        <div style={{ fontWeight: 600 }}>{formatPktDate(m.start_time)}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          {dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatPktTime(m.start_time)}
                         </div>
                       </td>
                       <td>

@@ -20,6 +20,7 @@ import {
 import { DoctorRatingModal } from './DoctorRatingModal';
 import { PrescriptionView } from './PrescriptionView';
 import { prescriptionApi } from '../../api/prescription';
+import { formatPktDate, formatPktTime } from '../../utils/dateUtils';
 
 
 export function PatientMeetingsList({ refreshTrigger }) {
@@ -157,12 +158,12 @@ export function PatientMeetingsList({ refreshTrigger }) {
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
                         <Calendar size={15} color="var(--primary)" />
-                        <strong>{startDt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
+                        <strong>{formatPktDate(m.start_time)}</strong>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <Clock size={15} color="var(--primary)" />
                         <span>
-                          {startDt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {endDt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatPktTime(m.start_time)} – {formatPktTime(m.end_time)}
                         </span>
                       </div>
                     </div>
@@ -244,7 +245,7 @@ export function PatientMeetingsList({ refreshTrigger }) {
                     Dr. {m.doctor_name || 'Specialist'} ({m.doctor_specialization || 'Consultation'})
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {new Date(m.start_time).toLocaleDateString()} at {new Date(m.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formatPktDate(m.start_time)} at {formatPktTime(m.start_time)}
                   </div>
                 </div>
 

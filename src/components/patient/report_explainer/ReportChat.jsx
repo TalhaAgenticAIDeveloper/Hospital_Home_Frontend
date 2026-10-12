@@ -169,7 +169,8 @@ export function ReportChat({ sessionId, messages = [], onMessageAdded }) {
 
                     <span className="message-timestamp">
                       {msg.created_at
-                        ? new Date(msg.created_at).toLocaleTimeString([], {
+                        ? new Date(msg.created_at).toLocaleTimeString('en-US', {
+                            timeZone: 'Asia/Karachi',
                             hour: '2-digit',
                             minute: '2-digit',
                           })

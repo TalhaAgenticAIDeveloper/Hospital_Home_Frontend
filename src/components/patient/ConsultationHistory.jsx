@@ -47,6 +47,7 @@ export function ConsultationHistory() {
     if (!dStr) return '';
     try {
       return new Date(dStr).toLocaleDateString('en-US', {
+        timeZone: 'Asia/Karachi',
         weekday: 'short',
         month: 'short',
         day: 'numeric',
@@ -61,6 +62,7 @@ export function ConsultationHistory() {
     if (!dStr) return '';
     try {
       return new Date(dStr).toLocaleTimeString('en-US', {
+        timeZone: 'Asia/Karachi',
         hour: '2-digit',
         minute: '2-digit',
       });

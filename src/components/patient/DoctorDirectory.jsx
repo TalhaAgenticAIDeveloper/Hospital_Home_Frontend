@@ -20,6 +20,7 @@ import {
   Star,
   Coins,
 } from 'lucide-react';
+import { formatPktDate, formatPktTime } from '../../utils/dateUtils';
 
 export function DoctorDirectory({ onMeetingBooked }) {
   const [doctors, setDoctors] = useState([]);
@@ -384,14 +385,14 @@ export function DoctorDirectory({ onMeetingBooked }) {
                             >
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                                 <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                                  {sDt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                                  {formatPktDate(slot.start_time)}
                                 </div>
                                 <span style={{ fontSize: '0.68rem', padding: '0.15rem 0.45rem', borderRadius: '4px', background: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }}>
                                   Available
                                 </span>
                               </div>
                               <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
-                                {sDt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {eDt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {formatPktTime(slot.start_time)} – {formatPktTime(slot.end_time)}
                               </div>
                               <div style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                 <span>Book Visit</span> →
@@ -441,9 +442,9 @@ export function DoctorDirectory({ onMeetingBooked }) {
                       <strong>Doctor:</strong> Dr. {selectedDoctor.full_name || 'Specialist'} ({selectedDoctor.specialization || 'General Physician'})
                     </div>
                   )}
-                  <div><strong>Date:</strong> {new Date(selectedSlot.start_time).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                  <div><strong>Date:</strong> {formatPktDate(selectedSlot.start_time, { weekday: 'long' })}</div>
                   <div style={{ marginTop: '4px' }}>
-                    <strong>Time:</strong> {new Date(selectedSlot.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(selectedSlot.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <strong>Time:</strong> {formatPktTime(selectedSlot.start_time)} – {formatPktTime(selectedSlot.end_time)}
                   </div>
                   <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #86efac', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#065f46', fontWeight: 600 }}>

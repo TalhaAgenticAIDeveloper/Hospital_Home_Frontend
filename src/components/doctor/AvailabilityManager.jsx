@@ -15,6 +15,7 @@ import {
   ToggleRight,
   RefreshCw,
 } from 'lucide-react';
+import { formatPktDate, formatPktTime } from '../../utils/dateUtils';
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_NAMES_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -148,14 +149,9 @@ export function AvailabilityManager() {
     }
   };
 
-  // Group slots by date for visual layout
+  // Group slots by date for visual layout (anchored to Pakistan Standard Time)
   const groupedSlots = slots.reduce((acc, slot) => {
-    const d = new Date(slot.start_time).toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    const d = formatPktDate(slot.start_time);
     if (!acc[d]) acc[d] = [];
     acc[d].push(slot);
     return acc;
@@ -423,14 +419,8 @@ export function AvailabilityManager() {
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' }}>
                 {dateSlots.map((slot) => {
-                  const sTime = new Date(slot.start_time).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  });
-                  const eTime = new Date(slot.end_time).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  });
+                  const sTime = formatPktTime(slot.start_time);
+                  const eTime = formatPktTime(slot.end_time);
 
                   return (
                     <div

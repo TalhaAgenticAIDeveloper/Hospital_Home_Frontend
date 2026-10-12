@@ -48,6 +48,7 @@ export function PatientHistoryForDoctor({ patientId, patientName }) {
     if (!dStr) return '';
     try {
       return new Date(dStr).toLocaleDateString('en-US', {
+        timeZone: 'Asia/Karachi',
         month: 'short',
         day: 'numeric',
         year: 'numeric',
@@ -61,6 +62,7 @@ export function PatientHistoryForDoctor({ patientId, patientName }) {
     if (!dStr) return '';
     try {
       return new Date(dStr).toLocaleTimeString('en-US', {
+        timeZone: 'Asia/Karachi',
         hour: '2-digit',
         minute: '2-digit',
       });
