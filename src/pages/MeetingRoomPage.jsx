@@ -957,12 +957,13 @@ export function MeetingRoomPage() {
       // Dedicated audio track routing to ensure microphone sound is never muted
       if (event.track.kind === 'audio') {
         if (remoteAudioRef.current) {
-          const audioStream = (event.streams && event.streams[0])
-            ? event.streams[0]
-            : new MediaStream([event.track]);
-          remoteAudioRef.current.srcObject = audioStream;
+          // Always create a dedicated audio-only stream for the audio element
+          // to avoid conflicts with the video element's stream
+          const audioOnlyStream = new MediaStream([event.track]);
+          remoteAudioRef.current.srcObject = audioOnlyStream;
           remoteAudioRef.current.play().then(() => {
             setAudioAutoplayBlocked(false);
+            console.log('Remote audio playing successfully');
           }).catch((err) => {
             console.warn('Remote audio autoplay blocked by browser policy:', err);
             setAudioAutoplayBlocked(true);
@@ -970,23 +971,17 @@ export function MeetingRoomPage() {
         }
       }
 
-      // Video track routing
-      if (remoteVideoRef.current) {
-        if (event.streams && event.streams[0]) {
-          remoteVideoRef.current.srcObject = event.streams[0];
-        } else {
-          let currentStream = remoteVideoRef.current.srcObject;
-          if (!currentStream) {
-            currentStream = new MediaStream();
-            remoteVideoRef.current.srcObject = currentStream;
-          }
-          if (!currentStream.getTracks().includes(event.track)) {
-            currentStream.addTrack(event.track);
-          }
+      // Video track routing — ONLY for video tracks
+      if (event.track.kind === 'video') {
+        if (remoteVideoRef.current) {
+          // Create a video-only stream so the video element does NOT
+          // interfere with audio playback on the dedicated audio element
+          const videoOnlyStream = new MediaStream([event.track]);
+          remoteVideoRef.current.srcObject = videoOnlyStream;
+          remoteVideoRef.current.play().catch((err) => {
+            console.warn('Remote video autoplay blocked:', err);
+          });
         }
-        remoteVideoRef.current.play().catch((err) => {
-          console.warn('Remote video autoplay blocked:', err);
-        });
       }
 
       setPeerConnected(true);
@@ -1988,11 +1983,12 @@ export function MeetingRoomPage() {
             </div>
           )}
 
-          {/* Remote Video (Peer) */}
+          {/* Remote Video (Peer) — muted because audio is routed through dedicated <audio> element */}
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
+            muted
             style={{
               width: '100%',
               height: '100%',
