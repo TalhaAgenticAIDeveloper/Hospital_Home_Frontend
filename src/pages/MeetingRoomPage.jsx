@@ -141,6 +141,7 @@ export function MeetingRoomPage() {
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const wsRef = useRef(null);
+  const iceCandidateQueueRef = useRef([]);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
@@ -853,7 +854,10 @@ export function MeetingRoomPage() {
       }).catch((e) => console.warn('Audio play still prevented by browser:', e));
     }
     if (remoteVideoRef.current) {
-      remoteVideoRef.current.play().catch(() => {});
+      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.play().then(() => {
+        setAudioAutoplayBlocked(false);
+      }).catch(() => {});
     }
   };
 
@@ -950,38 +954,41 @@ export function MeetingRoomPage() {
 
     attachTracksToPC(pc, stream);
 
-    // Remote track handler - routes audio and video cleanly to respective elements
+    // Remote track handler - routes peer stream to video and audio elements
     pc.ontrack = (event) => {
       console.log('WebRTC ontrack received:', event.track.kind, event.track.id);
 
-      // Dedicated audio track routing to ensure microphone sound is never muted
-      if (event.track.kind === 'audio') {
-        if (remoteAudioRef.current) {
-          // Always create a dedicated audio-only stream for the audio element
-          // to avoid conflicts with the video element's stream
-          const audioOnlyStream = new MediaStream([event.track]);
-          remoteAudioRef.current.srcObject = audioOnlyStream;
-          remoteAudioRef.current.play().then(() => {
-            setAudioAutoplayBlocked(false);
-            console.log('Remote audio playing successfully');
-          }).catch((err) => {
-            console.warn('Remote audio autoplay blocked by browser policy:', err);
-            setAudioAutoplayBlocked(true);
-          });
-        }
+      // Extract the primary remote MediaStream
+      const remoteStream = (event.streams && event.streams[0])
+        ? event.streams[0]
+        : (remoteVideoRef.current?.srcObject || new MediaStream());
+
+      if (!remoteStream.getTracks().includes(event.track)) {
+        remoteStream.addTrack(event.track);
       }
 
-      // Video track routing — ONLY for video tracks
-      if (event.track.kind === 'video') {
-        if (remoteVideoRef.current) {
-          // Create a video-only stream so the video element does NOT
-          // interfere with audio playback on the dedicated audio element
-          const videoOnlyStream = new MediaStream([event.track]);
-          remoteVideoRef.current.srcObject = videoOnlyStream;
-          remoteVideoRef.current.play().catch((err) => {
-            console.warn('Remote video autoplay blocked:', err);
-          });
+      // Attach remote stream to video element
+      if (remoteVideoRef.current) {
+        if (remoteVideoRef.current.srcObject !== remoteStream) {
+          remoteVideoRef.current.srcObject = remoteStream;
         }
+        remoteVideoRef.current.play().catch((err) => {
+          console.warn('Remote video playback note:', err);
+        });
+      }
+
+      // Dedicated audio element to guarantee audio output
+      if (remoteAudioRef.current) {
+        if (remoteAudioRef.current.srcObject !== remoteStream) {
+          remoteAudioRef.current.srcObject = remoteStream;
+        }
+        remoteAudioRef.current.play().then(() => {
+          setAudioAutoplayBlocked(false);
+          console.log('Remote audio playing successfully');
+        }).catch((err) => {
+          console.warn('Remote audio autoplay note:', err);
+          setAudioAutoplayBlocked(true);
+        });
       }
 
       setPeerConnected(true);
@@ -1061,6 +1068,7 @@ export function MeetingRoomPage() {
         switch (data.type) {
           case 'room-status':
             if (data.peer_count >= 2) {
+              setBothJoined(true);
               const other = data.participants.find((p) => p.user_id !== user?.id);
               if (other) {
                 setPeerName(other.name);
@@ -1070,6 +1078,7 @@ export function MeetingRoomPage() {
 
           case 'peer-joined': {
             setPeerName(data.name || 'Participant');
+            setBothJoined(true);
             setToast({ type: 'info', message: `${data.name} joined the consultation.` });
 
             // Create PeerConnection and initiate offer to newcomer
@@ -1105,6 +1114,19 @@ export function MeetingRoomPage() {
               }
 
               await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
+
+              // Process any ICE candidates that arrived before offer was processed
+              if (iceCandidateQueueRef.current.length > 0) {
+                for (const cand of iceCandidateQueueRef.current) {
+                  try {
+                    await pcAns.addIceCandidate(new RTCIceCandidate(cand));
+                  } catch (e) {
+                    console.warn('Error applying buffered ICE candidate:', e);
+                  }
+                }
+                iceCandidateQueueRef.current = [];
+              }
+
               const answer = await pcAns.createAnswer({
                 offerToReceiveAudio: true,
                 offerToReceiveVideo: true,
@@ -1131,6 +1153,18 @@ export function MeetingRoomPage() {
               if (pcOffer && pcOffer.signalingState === 'have-local-offer') {
                 await pcOffer.setRemoteDescription(new RTCSessionDescription(data.sdp));
                 console.log('WebRTC remote description set from answer successfully');
+
+                // Process any ICE candidates buffered during answer exchange
+                if (iceCandidateQueueRef.current.length > 0) {
+                  for (const cand of iceCandidateQueueRef.current) {
+                    try {
+                      await pcOffer.addIceCandidate(new RTCIceCandidate(cand));
+                    } catch (e) {
+                      console.warn('Error applying buffered ICE candidate:', e);
+                    }
+                  }
+                  iceCandidateQueueRef.current = [];
+                }
               }
             } catch (err) {
               console.error('Failed to handle incoming answer:', err);
@@ -1140,11 +1174,17 @@ export function MeetingRoomPage() {
 
           case 'ice-candidate': {
             const pcCandidate = peerConnectionRef.current;
-            if (pcCandidate && data.candidate) {
-              try {
-                await pcCandidate.addIceCandidate(new RTCIceCandidate(data.candidate));
-              } catch (e) {
-                console.warn('Error adding ICE candidate:', e);
+            if (data.candidate) {
+              // If remote description is already set, add candidate directly
+              if (pcCandidate && pcCandidate.remoteDescription && pcCandidate.remoteDescription.type) {
+                try {
+                  await pcCandidate.addIceCandidate(new RTCIceCandidate(data.candidate));
+                } catch (e) {
+                  console.warn('Error adding ICE candidate:', e);
+                }
+              } else {
+                // Buffer until setRemoteDescription is called
+                iceCandidateQueueRef.current.push(data.candidate);
               }
             }
             break;
@@ -1983,12 +2023,11 @@ export function MeetingRoomPage() {
             </div>
           )}
 
-          {/* Remote Video (Peer) — muted because audio is routed through dedicated <audio> element */}
+          {/* Remote Video (Peer) */}
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            muted
             style={{
               width: '100%',
               height: '100%',
