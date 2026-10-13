@@ -144,6 +144,8 @@ export function MeetingRoomPage() {
   const iceCandidateQueueRef = useRef([]);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const iceCandidatesQueueRef = useRef([]);
+  const clonedTrackRef = useRef(null);
 
   // ─── 1. Load Meeting Details and Unblock UI Immediately ───────────────────
   useEffect(() => {
@@ -649,28 +651,71 @@ export function MeetingRoomPage() {
     };
   };
 
+  // Helper to downsample Float32 audio buffer from inputSampleRate to target 16kHz for Gemini
+  const downsampleAudio = (buffer, fromRate, toRate = 16000) => {
+    if (fromRate === toRate) return buffer;
+    const ratio = fromRate / toRate;
+    const newLength = Math.round(buffer.length / ratio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < result.length) {
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+        accum += buffer[i];
+        count++;
+      }
+      result[offsetResult] = count > 0 ? accum / count : 0;
+      offsetResult++;
+      offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
+  };
+
   const startAudioCapture = (stream, gws) => {
     if (!stream || !gws) return;
 
     try {
-      // Create an AudioContext at 16kHz for Gemini's expected input format
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({
-        sampleRate: 16000,
-      });
+      const audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) {
+        console.warn('[GEMINI_TRANSCRIPTION] No audio track available for capture');
+        return;
+      }
+
+      // Clone the audio track so Web Audio API operates in an isolated pipeline
+      // and NEVER interferes with or silences the WebRTC peer audio track
+      const clonedTrack = audioTrack.clone();
+      clonedTrackRef.current = clonedTrack;
+      const captureStream = new MediaStream([clonedTrack]);
+
+      // Create an AudioContext at native hardware sample rate (do NOT force 16000)
+      // Forcing 16000Hz causes Chromium/WASAPI input collision that silences WebRTC mic stream!
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AudioCtxClass();
       audioContextRef.current = audioCtx;
 
-      const source = audioCtx.createMediaStreamSource(stream);
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+
+      const source = audioCtx.createMediaStreamSource(captureStream);
 
       // ScriptProcessorNode captures raw PCM audio data
-      // Buffer size 4096 at 16kHz = ~256ms chunks — good balance of latency vs overhead
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       audioProcessorRef.current = processor;
+
+      const currentSampleRate = audioCtx.sampleRate;
 
       processor.onaudioprocess = (e) => {
         if (!geminiActiveRef.current || !gws || gws.readyState !== WebSocket.OPEN) return;
 
         // Get Float32 PCM data from the input channel
-        const float32Data = e.inputBuffer.getChannelData(0);
+        const rawFloat32 = e.inputBuffer.getChannelData(0);
+
+        // Downsample to 16kHz for Gemini
+        const float32Data = downsampleAudio(rawFloat32, currentSampleRate, 16000);
 
         // Convert Float32 [-1.0, 1.0] → Int16 [-32768, 32767] (16-bit PCM)
         const int16Data = new Int16Array(float32Data.length);
@@ -704,10 +749,9 @@ export function MeetingRoomPage() {
       muteNode.connect(audioCtx.destination);
 
       console.log(
-        '[GEMINI_TRANSCRIPTION] Audio capture started:',
-        `sampleRate=${audioCtx.sampleRate}Hz`,
-        `bufferSize=4096`,
-        `channelCount=1`
+        '[GEMINI_TRANSCRIPTION] Audio capture started safely:',
+        `hardwareSampleRate=${audioCtx.sampleRate}Hz`,
+        `downsampledTo=16000Hz`
       );
     } catch (err) {
       console.error('[GEMINI_TRANSCRIPTION] Failed to start audio capture:', err);
@@ -731,6 +775,13 @@ export function MeetingRoomPage() {
         audioContextRef.current.close();
       } catch (e) {}
       audioContextRef.current = null;
+    }
+
+    if (clonedTrackRef.current) {
+      try {
+        clonedTrackRef.current.stop();
+      } catch (e) {}
+      clonedTrackRef.current = null;
     }
 
     // Close Gemini WebSocket
@@ -835,6 +886,9 @@ export function MeetingRoomPage() {
     if (!pc || !activeStream) return;
     const senders = pc.getSenders();
     activeStream.getTracks().forEach((track) => {
+      if (track.kind === 'audio') {
+        track.enabled = !isAudioMuted;
+      }
       const already = senders.some((s) => s.track && s.track.id === track.id);
       if (!already) {
         try {
@@ -849,6 +903,8 @@ export function MeetingRoomPage() {
 
   const unlockAudio = () => {
     if (remoteAudioRef.current) {
+      remoteAudioRef.current.muted = false;
+      remoteAudioRef.current.volume = 1.0;
       remoteAudioRef.current.play().then(() => {
         setAudioAutoplayBlocked(false);
       }).catch((e) => console.warn('Audio play still prevented by browser:', e));
@@ -949,6 +1005,7 @@ export function MeetingRoomPage() {
       return peerConnectionRef.current;
     }
 
+    iceCandidatesQueueRef.current = [];
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionRef.current = pc;
 
@@ -958,36 +1015,38 @@ export function MeetingRoomPage() {
     pc.ontrack = (event) => {
       console.log('WebRTC ontrack received:', event.track.kind, event.track.id);
 
-      // Extract the primary remote MediaStream
-      const remoteStream = (event.streams && event.streams[0])
-        ? event.streams[0]
-        : (remoteVideoRef.current?.srcObject || new MediaStream());
-
-      if (!remoteStream.getTracks().includes(event.track)) {
-        remoteStream.addTrack(event.track);
+      // Dedicated audio track routing - pure audio MediaStream so HTMLAudioElement never fails on video tracks
+      if (event.track.kind === 'audio') {
+        if (remoteAudioRef.current) {
+          const audioStream = new MediaStream([event.track]);
+          remoteAudioRef.current.srcObject = audioStream;
+          remoteAudioRef.current.volume = 1.0;
+          remoteAudioRef.current.muted = false;
+          remoteAudioRef.current.play().then(() => {
+            setAudioAutoplayBlocked(false);
+          }).catch((err) => {
+            console.warn('Remote audio autoplay blocked by browser policy:', err);
+            setAudioAutoplayBlocked(true);
+          });
+        }
       }
 
-      // Attach remote stream to video element
-      if (remoteVideoRef.current) {
-        if (remoteVideoRef.current.srcObject !== remoteStream) {
-          remoteVideoRef.current.srcObject = remoteStream;
+      // Video track routing - only for video tracks!
+      if (event.track.kind === 'video' && remoteVideoRef.current) {
+        if (event.streams && event.streams[0]) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        } else {
+          let currentStream = remoteVideoRef.current.srcObject;
+          if (!currentStream) {
+            currentStream = new MediaStream();
+            remoteVideoRef.current.srcObject = currentStream;
+          }
+          if (!currentStream.getTracks().includes(event.track)) {
+            currentStream.addTrack(event.track);
+          }
         }
         remoteVideoRef.current.play().catch((err) => {
-          console.warn('Remote video playback note:', err);
-        });
-      }
-
-      // Dedicated audio element to guarantee audio output
-      if (remoteAudioRef.current) {
-        if (remoteAudioRef.current.srcObject !== remoteStream) {
-          remoteAudioRef.current.srcObject = remoteStream;
-        }
-        remoteAudioRef.current.play().then(() => {
-          setAudioAutoplayBlocked(false);
-          console.log('Remote audio playing successfully');
-        }).catch((err) => {
-          console.warn('Remote audio autoplay note:', err);
-          setAudioAutoplayBlocked(true);
+          console.warn('Remote video play blocked:', err);
         });
       }
 
@@ -1115,6 +1174,7 @@ export function MeetingRoomPage() {
 
               await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
 
+<<<<<<< HEAD
               // Process any ICE candidates that arrived before offer was processed
               if (iceCandidateQueueRef.current.length > 0) {
                 for (const cand of iceCandidateQueueRef.current) {
@@ -1125,6 +1185,16 @@ export function MeetingRoomPage() {
                   }
                 }
                 iceCandidateQueueRef.current = [];
+=======
+              // Process any queued ICE candidates that arrived before remoteDescription was set
+              while (iceCandidatesQueueRef.current.length > 0) {
+                const cand = iceCandidatesQueueRef.current.shift();
+                try {
+                  await pcAns.addIceCandidate(new RTCIceCandidate(cand));
+                } catch (e) {
+                  console.warn('Error adding queued ICE candidate on answerer:', e);
+                }
+>>>>>>> 422bcd9 (audio added)
               }
 
               const answer = await pcAns.createAnswer({
@@ -1154,6 +1224,7 @@ export function MeetingRoomPage() {
                 await pcOffer.setRemoteDescription(new RTCSessionDescription(data.sdp));
                 console.log('WebRTC remote description set from answer successfully');
 
+<<<<<<< HEAD
                 // Process any ICE candidates buffered during answer exchange
                 if (iceCandidateQueueRef.current.length > 0) {
                   for (const cand of iceCandidateQueueRef.current) {
@@ -1164,6 +1235,16 @@ export function MeetingRoomPage() {
                     }
                   }
                   iceCandidateQueueRef.current = [];
+=======
+                // Process any queued ICE candidates that arrived before remoteDescription was set
+                while (iceCandidatesQueueRef.current.length > 0) {
+                  const cand = iceCandidatesQueueRef.current.shift();
+                  try {
+                    await pcOffer.addIceCandidate(new RTCIceCandidate(cand));
+                  } catch (e) {
+                    console.warn('Error adding queued ICE candidate on offerer:', e);
+                  }
+>>>>>>> 422bcd9 (audio added)
                 }
               }
             } catch (err) {
@@ -1175,7 +1256,10 @@ export function MeetingRoomPage() {
           case 'ice-candidate': {
             const pcCandidate = peerConnectionRef.current;
             if (data.candidate) {
+<<<<<<< HEAD
               // If remote description is already set, add candidate directly
+=======
+>>>>>>> 422bcd9 (audio added)
               if (pcCandidate && pcCandidate.remoteDescription && pcCandidate.remoteDescription.type) {
                 try {
                   await pcCandidate.addIceCandidate(new RTCIceCandidate(data.candidate));
@@ -1183,8 +1267,12 @@ export function MeetingRoomPage() {
                   console.warn('Error adding ICE candidate:', e);
                 }
               } else {
+<<<<<<< HEAD
                 // Buffer until setRemoteDescription is called
                 iceCandidateQueueRef.current.push(data.candidate);
+=======
+                iceCandidatesQueueRef.current.push(data.candidate);
+>>>>>>> 422bcd9 (audio added)
               }
             }
             break;
@@ -1471,6 +1559,12 @@ export function MeetingRoomPage() {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
+    if (clonedTrackRef.current) {
+      try {
+        clonedTrackRef.current.stop();
+      } catch (e) {}
+      clonedTrackRef.current = null;
+    }
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
@@ -1479,6 +1573,7 @@ export function MeetingRoomPage() {
       wsRef.current.close();
       wsRef.current = null;
     }
+    iceCandidatesQueueRef.current = [];
     setLocalStream(null);
   };
 
@@ -2023,11 +2118,12 @@ export function MeetingRoomPage() {
             </div>
           )}
 
-          {/* Remote Video (Peer) */}
+          {/* Remote Video (Peer) - muted so video autoplay is never blocked, audio plays via remoteAudioRef */}
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
+            muted
             style={{
               width: '100%',
               height: '100%',
