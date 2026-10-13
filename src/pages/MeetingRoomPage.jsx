@@ -141,7 +141,6 @@ export function MeetingRoomPage() {
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const wsRef = useRef(null);
-  const iceCandidateQueueRef = useRef([]);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const iceCandidatesQueueRef = useRef([]);
@@ -1174,18 +1173,6 @@ export function MeetingRoomPage() {
 
               await pcAns.setRemoteDescription(new RTCSessionDescription(data.sdp));
 
-<<<<<<< HEAD
-              // Process any ICE candidates that arrived before offer was processed
-              if (iceCandidateQueueRef.current.length > 0) {
-                for (const cand of iceCandidateQueueRef.current) {
-                  try {
-                    await pcAns.addIceCandidate(new RTCIceCandidate(cand));
-                  } catch (e) {
-                    console.warn('Error applying buffered ICE candidate:', e);
-                  }
-                }
-                iceCandidateQueueRef.current = [];
-=======
               // Process any queued ICE candidates that arrived before remoteDescription was set
               while (iceCandidatesQueueRef.current.length > 0) {
                 const cand = iceCandidatesQueueRef.current.shift();
@@ -1194,7 +1181,6 @@ export function MeetingRoomPage() {
                 } catch (e) {
                   console.warn('Error adding queued ICE candidate on answerer:', e);
                 }
->>>>>>> 422bcd9 (audio added)
               }
 
               const answer = await pcAns.createAnswer({
@@ -1224,18 +1210,6 @@ export function MeetingRoomPage() {
                 await pcOffer.setRemoteDescription(new RTCSessionDescription(data.sdp));
                 console.log('WebRTC remote description set from answer successfully');
 
-<<<<<<< HEAD
-                // Process any ICE candidates buffered during answer exchange
-                if (iceCandidateQueueRef.current.length > 0) {
-                  for (const cand of iceCandidateQueueRef.current) {
-                    try {
-                      await pcOffer.addIceCandidate(new RTCIceCandidate(cand));
-                    } catch (e) {
-                      console.warn('Error applying buffered ICE candidate:', e);
-                    }
-                  }
-                  iceCandidateQueueRef.current = [];
-=======
                 // Process any queued ICE candidates that arrived before remoteDescription was set
                 while (iceCandidatesQueueRef.current.length > 0) {
                   const cand = iceCandidatesQueueRef.current.shift();
@@ -1244,7 +1218,6 @@ export function MeetingRoomPage() {
                   } catch (e) {
                     console.warn('Error adding queued ICE candidate on offerer:', e);
                   }
->>>>>>> 422bcd9 (audio added)
                 }
               }
             } catch (err) {
@@ -1256,10 +1229,6 @@ export function MeetingRoomPage() {
           case 'ice-candidate': {
             const pcCandidate = peerConnectionRef.current;
             if (data.candidate) {
-<<<<<<< HEAD
-              // If remote description is already set, add candidate directly
-=======
->>>>>>> 422bcd9 (audio added)
               if (pcCandidate && pcCandidate.remoteDescription && pcCandidate.remoteDescription.type) {
                 try {
                   await pcCandidate.addIceCandidate(new RTCIceCandidate(data.candidate));
@@ -1267,12 +1236,7 @@ export function MeetingRoomPage() {
                   console.warn('Error adding ICE candidate:', e);
                 }
               } else {
-<<<<<<< HEAD
-                // Buffer until setRemoteDescription is called
-                iceCandidateQueueRef.current.push(data.candidate);
-=======
                 iceCandidatesQueueRef.current.push(data.candidate);
->>>>>>> 422bcd9 (audio added)
               }
             }
             break;
