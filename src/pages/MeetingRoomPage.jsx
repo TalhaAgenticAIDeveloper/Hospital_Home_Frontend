@@ -1000,8 +1000,18 @@ export function MeetingRoomPage() {
 
   const createPeerConnection = (meetingData, stream) => {
     if (peerConnectionRef.current) {
-      attachTracksToPC(peerConnectionRef.current, stream);
-      return peerConnectionRef.current;
+      const state = peerConnectionRef.current.connectionState;
+      const iceState = peerConnectionRef.current.iceConnectionState;
+      // If existing PeerConnection is dead/closed/failed, destroy it and create a fresh one
+      if (state === 'closed' || state === 'failed' || iceState === 'closed' || iceState === 'failed') {
+        console.warn(`Destroying stale PeerConnection (state=${state}, iceState=${iceState})`);
+        try { peerConnectionRef.current.close(); } catch (e) {}
+        peerConnectionRef.current = null;
+        iceCandidatesQueueRef.current = [];
+      } else {
+        attachTracksToPC(peerConnectionRef.current, stream);
+        return peerConnectionRef.current;
+      }
     }
 
     iceCandidatesQueueRef.current = [];
@@ -1072,7 +1082,15 @@ export function MeetingRoomPage() {
         setBothJoined(true);
       } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         setPeerConnected(false);
-        setBothJoined(false);
+        // Don't reset bothJoined on transient disconnects — only on peer-left
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE connection state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        setPeerConnected(true);
+        setBothJoined(true);
       }
     };
 
@@ -1116,7 +1134,25 @@ export function MeetingRoomPage() {
 
     ws.onclose = (e) => {
       console.log('Signaling WebSocket closed:', e.code, e.reason);
-      // Signaling WS closed — Gemini transcription manages its own status
+
+      // Auto-reconnect if not a deliberate close and session is still active
+      const isUserStop = e.code === 1000 || e.code === 4001 || e.code === 4003 || e.code === 4008;
+      if (!isUserStop && sessionState === 'active' && meetingData) {
+        const retryCount = (ws._reconnectCount || 0) + 1;
+        if (retryCount <= 5) {
+          const delay = Math.min(2000 * retryCount, 10000);
+          console.log(`[SIGNALING_WS] Auto-reconnecting in ${delay}ms (attempt ${retryCount}/5)...`);
+          setToast({ type: 'info', message: `Reconnecting to meeting server... (attempt ${retryCount})` });
+          setTimeout(() => {
+            if (sessionState === 'active') {
+              connectWebSocket(meetingData, activeStream);
+            }
+          }, delay);
+        } else {
+          console.warn('[SIGNALING_WS] Max reconnect attempts reached');
+          setToast({ type: 'error', message: 'Lost connection to meeting server. Please try rejoining.' });
+        }
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -1130,6 +1166,29 @@ export function MeetingRoomPage() {
               const other = data.participants.find((p) => p.user_id !== user?.id);
               if (other) {
                 setPeerName(other.name);
+              }
+
+              // If both participants are in the room but we don't have a WebRTC
+              // connection yet, initiate one. This handles edge cases where
+              // the peer-joined event was missed (e.g., both joined simultaneously).
+              if (!peerConnectionRef.current) {
+                try {
+                  console.log('room-status: Both in room but no PC — initiating WebRTC offer');
+                  const pc = createPeerConnection(meetingData, activeStream);
+                  const offer = await pc.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: true,
+                  });
+                  await pc.setLocalDescription(offer);
+                  ws.send(
+                    JSON.stringify({
+                      type: 'offer',
+                      sdp: pc.localDescription,
+                    })
+                  );
+                } catch (err) {
+                  console.warn('room-status: Failed to create offer:', err);
+                }
               }
             }
             break;
@@ -1206,7 +1265,11 @@ export function MeetingRoomPage() {
           case 'answer': {
             try {
               const pcOffer = peerConnectionRef.current;
-              if (pcOffer && pcOffer.signalingState === 'have-local-offer') {
+              if (!pcOffer) {
+                console.warn('Received answer but no PeerConnection exists');
+                break;
+              }
+              if (pcOffer.signalingState === 'have-local-offer') {
                 await pcOffer.setRemoteDescription(new RTCSessionDescription(data.sdp));
                 console.log('WebRTC remote description set from answer successfully');
 
@@ -1219,6 +1282,8 @@ export function MeetingRoomPage() {
                     console.warn('Error adding queued ICE candidate on offerer:', e);
                   }
                 }
+              } else {
+                console.warn(`Received answer but signalingState is '${pcOffer.signalingState}', not 'have-local-offer'. Ignoring.`);
               }
             } catch (err) {
               console.error('Failed to handle incoming answer:', err);
@@ -1243,10 +1308,28 @@ export function MeetingRoomPage() {
           }
 
           case 'peer-left':
+            console.log('Peer left — resetting WebRTC state for clean re-negotiation');
             setPeerConnected(false);
             setBothJoined(false);
             setPeerName('Participant disconnected');
             setToast({ type: 'info', message: 'The other participant has left the consultation.' });
+
+            // CRITICAL: Close and destroy the PeerConnection so the next
+            // peer-joined event creates a fresh connection. Without this,
+            // the stale PC is reused and audio/video never connects.
+            if (peerConnectionRef.current) {
+              try { peerConnectionRef.current.close(); } catch (e) {}
+              peerConnectionRef.current = null;
+            }
+            iceCandidatesQueueRef.current = [];
+
+            // Clear remote media elements so stale streams don't linger
+            if (remoteAudioRef.current) {
+              remoteAudioRef.current.srcObject = null;
+            }
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.srcObject = null;
+            }
             break;
 
           case 'transcript-segment': {
@@ -1349,9 +1432,8 @@ export function MeetingRoomPage() {
       }
     };
 
-    ws.onclose = (e) => {
-      console.log('Signaling WebSocket closed:', e.code, e.reason);
-    };
+    // Note: The primary ws.onclose with reconnection logic is defined above (line ~1117).
+    // Do NOT define a second ws.onclose here — it would overwrite the reconnection handler.
   };
 
   // ─── Controls & Actions ────────────────────────────────────────────────
